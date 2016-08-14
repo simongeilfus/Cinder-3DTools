@@ -52,6 +52,7 @@ import os
 import re
 import struct
 import json
+import shutil
 
 class _c4d( object ):
 	OBJECT_EMPTY_POLYGON  = 5100
@@ -310,6 +311,26 @@ class GltfAsset( object ):
 	FLOAT = 0x1406 #GL_FLOAT
 	ARRAY_BUFFER = 34962
 	ELEMENT_ARRAY_BUFFER = 34963
+	TEXTURE_2D = 3553
+	UNSIGNED_BYTE = 5121
+	UNSIGNED_SHORT_5_6_5 = 33635
+	UNSIGNED_SHORT_4_4_4_4 = 32819 
+	UNSIGNED_SHORT_5_5_5_1 = 32820
+	ALPHA = 6406 
+	RGB = 6407 
+	RGBA = 6408
+	LUMINANCE = 6409 
+	LUMINANCE_ALPHA = 6410
+	NEAREST = 9728 
+	LINEAR = 9729
+	NEAREST_MIPMAP_NEAREST = 9984
+	LINEAR_MIPMAP_NEAREST = 9985 
+	NEAREST_MIPMAP_LINEAR = 9986 
+	LINEAR_MIPMAP_LINEAR = 9987
+	CLAMP_TO_EDGE = 33071
+	MIRRORED_REPEAT = 33648
+	REPEAT = 10497
+
 	def __init__( self, sceneName ):
 		self.nodes = {}
 		self.accessors = {}
@@ -332,8 +353,12 @@ class GltfAsset( object ):
 		self.accessorNum = 0
 		self.bufferViewNum = 0
 		self.bufferNum = 0
+		self.techniqueNum = 0
+		self.textureNum = 0
+		self.samplerNum = 0
 		self.bufferName = "buffer"
 		self.buffer = bytearray()
+		self.imagePathsToMove = []
 		# create asset
 		self.asset = {}
 		self.asset["generator"] = "Cinder-3DTools"
@@ -380,19 +405,32 @@ class GltfAsset( object ):
 
 	def appendCamera( self, cameraName, cameraInfo ):
 		tempCameraObject = {}
-		tempPerspective = {}
-		tempPerspective["aspectRatio"] = 1.5
-		tempPerspective["yfov"] = 0.660593
-		tempPerspective["zfar"] = 100
-		tempPerspective["zNear"] = 0.01
-		tempCameraObject["perspective"] = tempPerspective
-		tempCameraObject["type"] = "perspective"
+		projectionType = cameraInfo[c4d.CAMERA_PROJECTION]
+
+		if projectionType == c4d.Pperspective:
+			tempPerspective = {}
+			tempPerspective["aspectRatio"] = 1.5
+			tempPerspective["yfov"] = cameraInfo[c4d.CAMERAOBJECT_FOV_VERTICAL]
+			tempPerspective["zfar"] = cameraInfo[c4d.CAMERAOBJECT_FAR_CLIPPING]
+			tempPerspective["znear"] = cameraInfo[c4d.CAMERAOBJECT_NEAR_CLIPPING]
+			tempCameraObject["perspective"] = tempPerspective
+			tempCameraObject["type"] = "perspective"
+		else:
+			tempOrtho = {}
+			tempOrtho["xmag"] = 1.5
+			tempOrtho["ymag"] = cameraInfo[c4d.CAMERAOBJECT_FOV_VERTICAL]
+			tempOrtho["zfar"] = cameraInfo[c4d.CAMERAOBJECT_FAR_CLIPPING]
+			tempOrtho["zNear"] = cameraInfo[c4d.CAMERAOBJECT_NEAR_CLIPPING]
+			tempCameraObject["orthographic"] = tempOrtho
+			tempCameraObject["type"] = "orthographic"
+
 		cameraKey = "camera_" + cameraName
 		self.cameras[cameraKey] = tempCameraObject
 		return cameraKey
 		pass
 
 	def appendLight( self, lightName, lightInfo ):
+		# todo: this
 		pass
 
 	def getCurrentBufferOffset( self ):
@@ -412,6 +450,16 @@ class GltfAsset( object ):
 		tempBuffer["uri"] = self.bufferName + ".bin"
 		self.buffers[self.bufferName] = tempBuffer
 		pass
+
+	def copyImages( self, dstPath ):
+		for imageInfo in self.imagePathsToMove:
+			fileName = imageInfo["fileName"]
+			srcPath = imageInfo["path"]
+			src = os.path.join( srcPath, fileName )
+			dst = os.path.join( dstPath, fileName )
+			print src
+			print dst
+			shutil.copyfile( src, dst )
 
 	def appendBufferView( self, bufferName, byteOffset, byteLength, target ):
 		tempBufferView = {}
@@ -443,21 +491,62 @@ class GltfAsset( object ):
 		return name
 		pass
 
+	def appendImage( self, fileName, pathToFile ):
+		tempImage = {}
+		tempImage["uri"] = fileName
+		tempImage["name"] = fileName[0:fileName.index(".")]
+		imageKey = "image-" + tempImage["name"]
+		self.images[imageKey] = tempImage
+		self.imagePathsToMove.append( { "fileName": fileName, "path": pathToFile } )
+		return imageKey
+		pass
+
+	def appendSampler( self ):
+		tempSampler = {}
+		# TODO: How do we figure this out
+		tempSampler["magFilter"] = self.LINEAR
+		tempSampler["minFilter"] = self.NEAREST_MIPMAP_LINEAR
+		tempSampler["wrapT"] = self.REPEAT
+		tempSampler["wrapS"] = self.REPEAT
+		self.samplerNum = self.samplerNum + 1
+		samplerKey = "sampler-" + str(self.samplerNum)
+		tempSampler["name"] = samplerKey
+		self.samplers[samplerKey] = tempSampler
+		return samplerKey
+		pass
+
+	def appendTexture( self, imageKey, samplerKey ):
+		tempTexture = {}
+		# TODO: How do we figure this out
+		tempTexture["format"] = self.RGB
+		tempTexture["internalFormat"] = self.RGB
+		tempTexture["sampler"] = samplerKey
+		tempTexture["source"] = imageKey
+		tempTexture["target"] = self.TEXTURE_2D
+		self.textureNum = self.textureNum + 1
+		textureKey = "texture-" + str(self.textureNum)
+		tempTexture["name"] = textureKey
+		tempTexture["type"] = self.UNSIGNED_BYTE
+		self.textures[textureKey] = tempTexture
+		return textureKey
+		pass
+
 	def appendAttrib( self, attribArray, dims, bufferViewName, attribOffset ):
 		# buffer positions
 		offset = len(self.buffer)
 		self.buffer.extend(struct.pack('%sf' % len(attribArray), *attribArray))
 		attribType = self.getAttribType( dims )
 		# create accessor
-		accessorName = self.appendAccessor( bufferViewName, attribOffset, dims * 4, attribType, len(attribArray) / dims, self.FLOAT, None, None ) 
+		accessorName = self.appendAccessor( bufferViewName, attribOffset, dims * 4, self.FLOAT, len(attribArray) / dims, attribType, None, None ) 
 		length = len(self.buffer) - offset
 		return accessorName, length
 
-	def createPrimitive( self, trimesh, materialName ):
+	def createPrimitive( self, trimesh, materialKey ):
 		# make temp primitive
 		tempPrimitive = {}
 		tempPrimitive["mode"] = 4 #GL_TRIANGLES
-		tempPrimitive["material"] = materialName
+		# TODO: This isn't a good way to be guaranteeing uniqueness
+		tempPrimitive["material"] = materialKey
 		indicesCount = len(trimesh.indices)
 		if indicesCount > 0:
 			# buffer indices
@@ -468,7 +557,7 @@ class GltfAsset( object ):
 			bufferViewName = self.appendBufferView( self.bufferName, indexOffset, indexLength, self.ELEMENT_ARRAY_BUFFER )
 			# indices has their own bufferView so the offset is 0 and length is the same
 			# create accessor
-			accessorName = self.appendAccessor( bufferViewName, 0, 0, SCALAR, indicesCount, UNSIGNED_SHORT, None, None )
+			accessorName = self.appendAccessor( bufferViewName, 0, 0, self.UNSIGNED_SHORT, indicesCount, self.SCALAR, None, None )
 			tempPrimitive["indices"] = accessorName
 			pass
 		# create bufferView 
@@ -600,7 +689,8 @@ class GltfAsset( object ):
 		return nodeKey
 		pass
 
-	def appendMaterial( self, materialInfo ):
+	def appendMaterial( self, materialKey, materialInfo ):
+		self.materials[materialKey] = materialInfo
 		pass
 
 
@@ -613,8 +703,9 @@ class GltfExporter( object ):
 		self.bakeTranform = False
 		self.angleWeightedNormals = False
 		self.gltfFilePath = None		
-		self.gltfAsset = None;
+		self.gltfAsset = None
 		self.unitScale = 0.01
+		self.documentPath = None
 		pass
 
 	## createFilePath
@@ -641,60 +732,6 @@ class GltfExporter( object ):
 		print fileName
 		# Return it!
 		return fileName
-		pass
-
-	def getColor( self, material ):
-		# Default this to 1.0 instead of the Maya's 0.0 since Cinder's stock shader multiplies against color.
-		result = [[1.0, 1.0, 1.0], None]
-
-		if material and material[c4d.MATERIAL_USE_COLOR]:
-			shader = material[c4d.MATERIAL_COLOR_SHADER]
-			if shader and ( c4d.Xbitmap == shader.GetType() ) and shader[c4d.BITMAPSHADER_FILENAME]:
-				result[1] = shader[c4d.BITMAPSHADER_FILENAME]
-			else:
-				rgb = material[c4d.MATERIAL_COLOR_COLOR]
-				result[0][0] = rgb.x
-				result[0][1] = rgb.y
-				result[0][2] = rgb.z
-				pass
-			pass
-
-		return result
-		pass
-
-	def populateColorAttr( self, jsonParent, attrName, valueRgb, valueFile ):
-		json = {}
-		basePath = os.path.dirname( self.gltfFilePath )
-		fileName = valueFile
-		# TODO: what does this function do? 
-		if fileName:
-			fileName = os.path.relpath( fileName, basePath )
-			fileName = fileName.replace( "\\" , "/" )				
-			json["type"] = "file"
-			json["value"] = fileName
-		else:
-			json["type"] = "color"		
-			json["value"] = valueRgb
-		jsonParent["param"] = json 
-		pass
-
-	def populateShaderParams( self, material ):
-		json = {}
-		json["type"] = "c4d"
-
-		if material and material[c4d.MATERIAL_USE_COLOR]:
-			rgb = material[c4d.MATERIAL_COLOR_COLOR]
-			valueRgb = [rgb.x, rgb.y, rgb.z]
-			valueFile = None
-			shader = material[c4d.MATERIAL_COLOR_SHADER]
-			if shader and ( c4d.Xbitmap == shader.GetType() ):
-				if shader[c4d.BITMAPSHADER_FILENAME]:
-					valueFile = shader[c4d.BITMAPSHADER_FILENAME]
-					pass
-				pass
-			pass
-			self.populateColorAttr( json, "color", valueRgb, valueFile )
-		return json
 		pass
 
 	## createTriMesh
@@ -802,7 +839,7 @@ class GltfExporter( object ):
 		for tag in tags:
 			if c4d.Ttexture == tag.GetType():
 				textureTags.append( tag ) 
-				print( "Found texture tag: TagName: %s, Tag Material Name: %s, Restriction: %s" % ( tag.GetName(), tag.GetMaterial().GetName(), tag[c4d.TEXTURETAG_RESTRICTION] ) )
+				#print( "Found texture tag: TagName: %s, Tag Material Name: %s, Restriction: %s" % ( tag.GetName(), tag.GetMaterial().GetName(), tag[c4d.TEXTURETAG_RESTRICTION] ) )
 			elif c4d.Tpolygonselection == tag.GetType():
 				selectionTags[tag.GetName()] = tag
 				print( "Found selection tag: %s" % tag.GetName() )
@@ -810,7 +847,7 @@ class GltfExporter( object ):
 			pass
 
 		polyCount = polyObj.GetPolygonCount()
-		#unusedFaces = [i for i in range( polyCount )]
+		usedFaces = []
 
 		# Ordering matters for restrictedTextureTags
 		restrictedTextureTags = []
@@ -822,7 +859,7 @@ class GltfExporter( object ):
 					if ( selectionName in selectionTags.keys() ) and ( selectionName not in uniqueSelections ):
 						uniqueSelections.append( selectionName )
 						restrictedTextureTags.append( textureTag )
-						print( "Restricted texture tag: %s %s %s" % ( textureTag.GetName(), textureTag.GetMaterial().GetName(), textureTag[c4d.TEXTURETAG_RESTRICTION] ) )
+						#print( "Restricted texture tag: %s %s %s" % ( textureTag.GetName(), textureTag.GetMaterial().GetName(), textureTag[c4d.TEXTURETAG_RESTRICTION] ) )
 						pass
 					pass
 				pass			
@@ -831,12 +868,11 @@ class GltfExporter( object ):
 			if 1 == len( textureTags ):
 				material = textureTags[0].GetMaterial()
 				faces = [i for i in range( polyCount )]
-				#del unusedFaces[:]
 				materialFaces.append( { "material" : material, "faces" : faces } )
+				usedFaces.extend( faces )
 				pass
 
 		# Process restrictedTextureTags in reverse
-		usedFaces = []
 		for textureTag in reversed( restrictedTextureTags ):
 			selectionName = textureTag[c4d.TEXTURETAG_RESTRICTION]
 			#print( selectionName )
@@ -874,6 +910,108 @@ class GltfExporter( object ):
 		return materialFaces
 		pass
 
+	def convertColor( self, colorVec ):
+		return [colorVec.x, colorVec.y, colorVec.z, 1.0]
+
+	def populateShaderParams( self, material ):
+		values = {}
+		colorFile = ""
+		colorVec = None
+		normalFile = ""
+		diffuseVec = None
+		diffuseFile = ""
+		specularVec = None 
+		specularFile = ""
+
+		transparency = material[c4d.MATERIAL_USE_TRANSPARENCY]
+		if transparency:
+			values["transparent"] = transparency
+			values["transparency"] = material[c4d.MATERIAL_TRANSPARENCY_COLOR]
+		if material[c4d.MATERIAL_USE_COLOR]==True:
+			colorVec=material[c4d.MATERIAL_COLOR_COLOR]          
+			if(material[c4d.MATERIAL_COLOR_SHADER]):
+				if material[c4d.MATERIAL_COLOR_SHADER].GetType() == c4d.Xbitmap:
+					colorFile = str(material[c4d.MATERIAL_COLOR_SHADER][c4d.BITMAPSHADER_FILENAME])
+				else:
+					print "only supported shaders are bitmapshader!"
+			    #exportData.AWDwarningObjects.append("
+		if(material[c4d.MATERIAL_USE_NORMAL]):            
+			if(material[c4d.MATERIAL_NORMAL_SHADER]):
+				if material[c4d.MATERIAL_NORMAL_SHADER].GetType() == c4d.Xbitmap:
+					normalFile = str(material[c4d.MATERIAL_NORMAL_SHADER][c4d.BITMAPSHADER_FILENAME])
+				else:
+					print "only supported shaders are bitmapshader!"   
+		if(material[c4d.MATERIAL_USE_DIFFUSION]): # for now  use the diffuse tex as specularMap   
+			diffuseVec = material[c4d.MATERIAL_DIFFUSION_COLOR]    
+			if(material[c4d.MATERIAL_DIFFUSION_SHADER]):
+				if material[c4d.MATERIAL_DIFFUSION_SHADER].GetType() == c4d.Xbitmap:
+					diffuseFile = str(material[c4d.MATERIAL_DIFFUSION_SHADER][c4d.BITMAPSHADER_FILENAME])
+				else:
+					print "only supported shaders are bitmapshader!"
+		if(material[c4d.MATERIAL_USE_SPECULARCOLOR]): 
+			specularVec = material[c4d.MATERIAL_SPECULAR_COLOR]          
+			if(material[c4d.MATERIAL_SPECULAR_SHADER]):
+			    if material[c4d.MATERIAL_SPECULAR_SHADER].GetType() == c4d.Xbitmap:
+					specularFile = str(material[c4d.MATERIAL_SPECULAR_SHADER][c4d.BITMAPSHADER_FILENAME])
+			    else:
+					print "only supported shaders are bitmapshader!"
+			
+			
+		if(material[c4d.MATERIAL_USE_FOG]):  
+			pass# add fog-method
+		if(material[c4d.MATERIAL_USE_SPECULAR]):  
+			pass
+		if(material[c4d.MATERIAL_USE_GLOW]):
+			pass
+		#print colorFile + " " + str(colorVec) + " " + normalFile + " " + str(diffuseVec) + " " + diffuseFile + " " + str(specularVec) + " " + specularFile
+		# TODO: need to query these values 
+		if colorFile != "":
+			imageKey = self.gltfAsset.appendImage( colorFile, self.documentPath )
+			samplerKey = self.gltfAsset.appendSampler()
+			textureKey = self.gltfAsset.appendTexture( imageKey, samplerKey )
+			values["diffuse"] = textureKey
+		elif colorVec is not None:
+			values["diffuse"] = self.convertColor( colorVec )
+
+		if diffuseFile is not "":
+			imageKey = self.gltfAsset.appendImage( diffuseFile, self.documentPath )
+			samplerKey = self.gltfAsset.appendSampler()
+			textureKey = self.gltfAsset.appendTexture( imageKey, samplerKey )
+			values["color"] = textureKey
+		elif diffuseVec is not None:
+			values["color"] = self.convertColor( diffuseVec )
+
+		if specularFile is not "":
+			imageKey = self.gltfAsset.appendImage( specularFile, self.documentPath )
+			samplerKey = self.gltfAsset.appendSampler()
+			textureKey = self.gltfAsset.appendTexture( imageKey, samplerKey )
+			values["specular"] = textureKey
+		elif specularVec is not None:
+			values["specular"] = self.convertColor( specularVec )
+
+		if normalFile is not "":
+			imageKey = self.gltfAsset.appendImage( normalFile, self.documentPath )
+			samplerKey = self.gltfAsset.appendSampler()
+			textureKey = self.gltfAsset.appendTexture( imageKey, samplerKey )
+			values["normal"] = textureKey
+
+		values["ambient"] = [0.2, 0.2, 0.2, 1.0]
+		values["emission"] = [0, 0, 0, 1.0]
+		values["shininess"] = 256.0
+		tempMaterial = {}
+		tempMaterial["values"] = values
+		tempMaterial["name"] = material.GetName().replace( " ", "_" )
+		self.gltfAsset.techniqueNum = self.gltfAsset.techniqueNum + 1
+		techniqueKey = "technique_" + str(self.gltfAsset.techniqueNum)
+		materialKey = "material-" + tempMaterial["name"]
+
+		if colorFile is not "":
+			materialKey = materialKey + colorFile
+		tempMaterial["technique"] = techniqueKey
+		self.gltfAsset.appendMaterial( materialKey, tempMaterial )
+		return techniqueKey, materialKey
+		pass
+
 	def addMeshNodes( self, parentName, nodeName, matrix, polyObj, materials ):
 		# Write initial data to Json
 		# Get color
@@ -886,19 +1024,13 @@ class GltfExporter( object ):
 			except:
 				pass
 			# Shader params
-			self.populateShaderParams( material["material"] )
+			techniqueKey, materialKey = self.populateShaderParams( material["material"] )
 
 			# Get buffers
 			trimesh = self.createTriMesh( polyObj, material["faces"], colorRgb )
 
-			# Get material name
-			materialName = None
-			if material["material"]:
-				materialName = material["material"].GetName()
-				materialName = materialName.replace( ".", "_" )
-				materialName = materialName.replace( " ", "_" )
 
-			primitives.append( self.gltfAsset.createPrimitive( trimesh, materialName ) )		
+			primitives.append( self.gltfAsset.createPrimitive( trimesh, materialKey ) )		
 			pass
 		meshKey = self.gltfAsset.appendMesh( nodeName + "Shape", primitives )
 		return self.gltfAsset.appendMeshNode( parentName, nodeName, matrix, [meshKey] )
@@ -966,6 +1098,8 @@ class GltfExporter( object ):
 		lightNodes = []
 
 		selected = doc.GetActiveObjects( c4d.GETACTIVEOBJECTFLAGS_SELECTIONORDER )
+		self.documentPath = doc.GetDocumentPath()
+		print self.documentPath
 		if 0 == len( selected ):
 			print( "Nothing selected" )
 			return
@@ -1073,6 +1207,7 @@ class GltfExporter( object ):
 		# finalize the byte buffer
 		self.gltfAsset.finalizeBuffer()
 		# write it out
+		self.gltfAsset.copyImages( path )
 		binFile = open( self.binFilePath, "w" )
 		binFile.write( self.gltfAsset.buffer )
 		print( "Wrote %s" % self.binFilePath )
