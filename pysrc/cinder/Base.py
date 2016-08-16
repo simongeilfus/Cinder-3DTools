@@ -7,13 +7,19 @@ from TriMeshWriter import TriMeshWriter
 class BaseMaterial( object ):
 	## c'tor
 	def __init__( self ):
-		print( "BaseMaterial c'tor" )		
+		print( "BaseMaterial c'tor" )	
+		self.textures = {}
+		self.colors = {}	
 		pass
 
 	## getName
 	def getName( self ):
 		raise NotImplementedError()
-		pass		
+		pass	
+
+	def gltf( writer ):
+		raise NotImplementedError()
+		pass	
 
 	## class BaseMaterial
 	pass
@@ -24,7 +30,9 @@ class BaseMaterial( object ):
 class BaseMesh( object ):
 	## c'tor
 	def __init__( self ):
-		print( "BaseMesh c'tor" )		
+		print( "BaseMesh c'tor" )
+		self.trimeshes = []
+		self.materials = []		
 		pass
 
 	## getName
@@ -35,7 +43,11 @@ class BaseMesh( object ):
 	## getTriMeshes
 	def getTriMeshes( self ):
 		raise NotImplementedError()
-		pass		
+		pass	
+
+	def gltf( writer ):
+		raise NotImplementedError()
+		pass
 
 	## class BaseMesh
 	pass
@@ -51,6 +63,10 @@ class BaseCamera( object ):
 
 	## getName
 	def getName( self ):
+		raise NotImplementedError()
+		pass
+
+	def gltf( writer ):
 		raise NotImplementedError()
 		pass
 
@@ -71,6 +87,44 @@ class BaseLight( object ):
 		raise NotImplementedError()
 		pass
 
+	def gltf( writer ):
+		raise NotImplementedError()
+		pass
+
+	## class BaseLight
+	pass	
+
+class BaseNode( object ):
+	## c'tor
+	def __init__( self ):
+		print( "BaseNode c'tor" )		
+		pass
+
+	def gltf( writer ):
+		raise NotImplementedError()
+		pass
+
+	## getName
+	def getName( self ):
+		raise NotImplementedError()
+		pass
+
+	def getTransform( self ):
+		raise NotImplementedError()
+		pass
+
+	def getTranslate( self ):
+		raise NotImplementedError()
+		pass
+
+	def getRotation( self ):
+		raise NotImplementedError()
+		pass
+
+	def getScale( self ):
+		raise NotImplementedError()
+		pass
+
 	## class BaseLight
 	pass	
 
@@ -83,6 +137,7 @@ class BaseExporter( object ):
 		print( "BaseExporter c'tor" )
 		self.path = None
 		self.meshes = []
+		self.materials = []
 		pass
 
 	## getMeshes

@@ -54,25 +54,6 @@ import struct
 import json
 import shutil
 
-class _c4d( object ):
-	OBJECT_EMPTY_POLYGON  = 5100
-	OBJECT_CONE           = 5162
-	OBJECT_CUBE           = 5159
-	OBJECT_CYLINDER       = 5170
-	OBJECT_DISC           = 5164
-	OBJECT_PLANE          = 5168
-	OBJECT_POLYGON        = 5174
-	OBJECT_SPHERE         = 5160
-	OBJECT_TORUS          = 5163
-	OBJECT_CAPSULE        = 5171
-	OBJECT_OIL_TANK       = 5172
-	OBJECT_TUBE           = 5165
-	OBJECT_PYRAMID        = 5167
-	OBJECT_PLATONIC       = 5161
-	OBJECT_CAMERA 		  = 5103
-	OBJECT_LIGHT		  = 5102
-	pass
-
 ## TriMesh
 #
 # This class is generic. Should be usable outside of Maya.
