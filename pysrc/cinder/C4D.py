@@ -342,12 +342,11 @@ class GltfWriter( object ):
 		tempPrimitive["attributes"] = tempAttributes
 		return tempPrimitive
 
-	def appendMesh( self, meshName, primitives ):
+	def appendMesh( self, meshKey, meshName, primitives ):
 		# make temp mesh object
 		tempMesh = {}
 		tempMesh["name"] = meshName
 		tempMesh["primitives"] = primitives
-		meshKey = meshName.replace( " ", "_" ) + "-lib"
 		self.meshes[meshKey] = tempMesh
 		return meshKey
 		pass
@@ -401,18 +400,56 @@ class BaseMaterial( object ):
 	## c'tor
 	def __init__( self ):
 		#print( "BaseMaterial c'tor" )	
-		self.textures = {}
+		self.name = ""
+		colorRgb = [0.8, 0.8, 0.8]
+		self.wraps = []
+		self.files = {}
 		self.colors = {}	
 		pass
-
-	## getName
+	## getName - returns the name of the Material
 	def getName( self ):
-		raise NotImplementedError()
-		pass	
+		if self.name != "": return self.name 
+		else: raise NotImplementedError()
+		pass
+	## getKey - returns what should be a unique name for this material
+	def getKey( self ): return "material-" + self.getName() 
+	## gltf writer function
+	def gltf( self, writer ):
+		values = {}
+		colorFile = ""
 
-	def gltf( writer ):
-		raise NotImplementedError()
-		pass	
+		fileKeys = self.files.keys()
+		if len( fileKeys ) > 0:
+			samplerKey = writer.appendSampler( self.wraps[0], self.wraps[1] )
+			for key in fileKeys:
+				filename = self.files[key]
+				if key == "color":
+					colorFile = filename
+				imageKey = writer.appendImage( filename ) 
+				textureKey = writer.appendTexture( imageKey, samplerKey )
+				values[key] = textureKey
+				pass
+			pass
+
+		colorKeys = self.colors.keys()
+		for color in colorKeys:
+			values[color] = self.colors[color]
+			pass
+
+		tempMaterial = {}
+		tempMaterial["values"] = values
+		tempMaterial["name"] = self.getName()
+
+		writer.techniqueNum = writer.techniqueNum + 1
+		techniqueKey = "technique_" + str(writer.techniqueNum)
+		materialKey = "material-" + tempMaterial["name"]
+
+		if colorFile is not "":
+			materialKey = materialKey + colorFile
+		tempMaterial["technique"] = techniqueKey
+		writer.appendMaterial( materialKey, tempMaterial )
+		return techniqueKey, materialKey
+		pass
 
 	## class BaseMaterial
 	pass
@@ -424,22 +461,29 @@ class BaseMesh( object ):
 	## c'tor
 	def __init__( self ):
 		#print( "BaseMesh c'tor" )
-		self.trimeshes = []
-		self.materials = []		
+		self.name = ""	
+		# this holds multiple dict objects, each has a 
+		# "trimesh" (a TriMesh) value and "material" (a BaseMaterial) value
+		self.primitives = []
 		pass
 
 	## getName
-	def getName( self ):
-		raise NotImplementedError()
-		pass
-
+	def getName( self ): 
+		if self.name != "": return self.name + " Shape"
+		else: raise NotImplementedError() 
+	## getKey
+	def getKey( self ): return self.getName().replace( " ", "_" ) + "-lib"
 	## getTriMeshes
 	def getTriMeshes( self ):
 		raise NotImplementedError()
 		pass	
-
-	def gltf( writer ):
-		raise NotImplementedError()
+	def gltf( self, writer ):
+		primitives = []
+		for prim in self.primitives:
+			prim["material"].gltf( writer )			
+			primitives.append( writer.createPrimitive( prim["trimesh"], prim["material"].getKey() ) )
+			pass
+		writer.appendMesh( self.getKey(), self.getName(), primitives )
 		pass
 
 	## class BaseMesh
@@ -449,20 +493,47 @@ class BaseMesh( object ):
 #
 #
 class BaseCamera( object ):
+	PROJECTION = 0
+	ORTHOGRAPHIC = 1
 	## c'tor
 	def __init__( self ):
-		#print( "BaseCamera c'tor" )		
+		#print( "BaseCamera c'tor" )
+		# needed variables	
+		self.name = ""
+		self.aspectRatio = None
+		self.yfov = None
+		self.xmag = None 
+		self.ymag = None 
+		self.zfar = None 
+		self.znear = None
+		self.cameraType = None # should be either Projection or orthographic above
 		pass
-
 	## getName
-	def getName( self ):
-		raise NotImplementedError()
-		pass
+	def getName( self ): 
+		if self.name != "": return self.name
+		else: raise NotImplementedError()
+	## getKey
+	def getKey( self ): return "camera_" + self.name
+	## gltf writer
+	def gltf( self, writer ):
+		tempCameraObject = {}
+		tempTypeObj = {}
+		if self.cameraType == BaseCamera.PROJECTION:
+			tempTypeObj["aspectRatio"] = self.aspectRatio
+			tempTypeObj["yfov"] = self.yfov
+			tempCameraObject["type"] = "perspective"
+		elif self.cameraType == BaseCamera.ORTHOGRAPHIC:
+			tempTypeObj["xmag"] = self.xmag
+			tempTypeObj["ymag"] = self.ymag
+			tempCameraObject["type"] = "orthographic"
+		else:
+			print "unknown camera type"
 
-	def gltf( writer ):
-		raise NotImplementedError()
+		tempTypeObj["zfar"] = self.zfar
+		tempTypeObj["znear"] = self.znear
+		tempCameraObject[tempCameraObject["type"]] = tempTypeObj
+		writer.cameras[self.getKey()] = tempCameraObject
 		pass
-
 	## class BaseCamera
 	pass
 
@@ -476,53 +547,88 @@ class BaseLight( object ):
 		pass
 
 	## getName
-	def getName( self ):
-		raise NotImplementedError()
+	def getName( self ): 
+		if self.name != "": return self.name
+		else: raise NotImplementedError()
+	## getKey
+	def getKey( self ): return "light_" + self.getName()
+	## gltf
+	def gltf( self, writer ):
 		pass
-
-	def gltf( writer ):
-		raise NotImplementedError()
-		pass
-
 	## class BaseLight
 	pass	
 
 class BaseNode( object ):
 	## c'tor
 	def __init__( self ):
-		#print( "BaseNode c'tor" )		
+		#print( "BaseNode c'tor" )	
+		self.name = ""
+		# needed variables for writer
+		self.cached = False
+		self.hasMesh = False 
+		self.meshes = []
+		self.hasCamera = False 
+		self.camera = None
+		self.hasLight = False
+		self.light = None
+		self.isNull = False 
+		self.childNodes = []
+		# needed transform info
+		self.matrix = None 
+		self.translate = None 
+		self.rotation = None 
+		self.scale = None
 		pass
+	## gltf writer
+	def gltf( self, writer ):
+		if self.hasMesh:
+			meshKeys = []
+			for mesh in self.meshes:
+				mesh.gltf( writer )
+				meshKeys.append( mesh.getKey() )
+				pass
+			writer.appendMeshNode( self.getKey(), self.getName(), self.getTransform(), meshKeys )
+			pass
+		elif self.hasCamera:
+			self.camera.gltf( writer )
+			writer.appendCameraNode( self.getKey(), self.getName(), self.getTransform(), self.camera.getKey() )
+			pass
+		elif self.hasLight:
+			self.light.gltf( writer )
+			writer.appendLightNode( self.getKey(), self.getName(), self.getTransform(), self.light.getKey() )
+			pass
+		elif self.isNull:
+			writer.appendNode( self.getKey(), self.getName(), self.getTransform() )
 
-	def gltf( writer ):
-		raise NotImplementedError()
+		for child in self.childNodes:
+			key = child.getKey()
+			child.gltf( writer )
+			writer.appendChild( self.getKey(), key )
+			pass
 		pass
-
-	## getName
-	def getName( self ):
-		raise NotImplementedError()
-		pass
-
-	def getParentKey( self ):
-		raise NotImplementedError()
-		pass
-
-	def getTransform( self ):
-		raise NotImplementedError()
-		pass
-
-	def getTranslate( self ):
-		raise NotImplementedError()
-		pass
-
-	def getRotation( self ):
-		raise NotImplementedError()
-		pass
-
-	def getScale( self ):
-		raise NotImplementedError()
-		pass
-
-	## class BaseLight
+	## getKey - returns unique key for this node
+	def getKey( self ): return self.getName().replace( " ", "_" )
+	## getName - returns name of node
+	def getName( self ): 
+		if self.name != "": return self.name
+		else: raise NotImplementedError()
+	## getTransform - returns parent relative mat4
+	def getTransform( self ): 
+		if self.matrix != None: return self.matrix
+		else: raise NotImplementedError()
+	## getTranslate - returns parent relative vec3 translate
+	def getTranslate( self ): 
+		if self.translate != None: return self.translate
+		else: raise NotImplementedError()
+	## getRotation - returns parent relative quat rotation
+	def getRotation( self ): 
+		if self.rotation != None: return self.rotation
+		else: raise NotImplementedError()
+	## getScale - returns parent relative vec3 scale
+	def getScale( self ): 
+		if self.scale != None: return self.scale
+		else: raise NotImplementedError()
+	## class BaseNode
 	pass	
 
 ## \class BaseExporter
@@ -639,7 +745,6 @@ def convertC4DMatrix( c4dMatrix ):
 	return elements
 	pass
 
-
 def convertColor( colorVec ):
 	return [colorVec.x, colorVec.y, colorVec.z, 1.0]
 
@@ -648,7 +753,7 @@ def convertColor( colorVec ):
 #
 class C4DMaterial( BaseMaterial ):
 	## c'tor
-	materialVals = [
+	MATERIAL_VALS = [
 		(c4d.MATERIAL_USE_TRANSPARENCY, None, 							c4d.MATERIAL_TRANSPARENCY_COLOR, "transparency"),
 		(c4d.MATERIAL_USE_COLOR, 		c4d.MATERIAL_COLOR_SHADER, 		c4d.MATERIAL_COLOR_COLOR, "color"),
 		(c4d.MATERIAL_USE_NORMAL, 		c4d.MATERIAL_NORMAL_SHADER, 	None, "normal" ),
@@ -658,20 +763,28 @@ class C4DMaterial( BaseMaterial ):
 
 	def __init__( self, materialSet ):
 		#print( "C4DMaterial c'tor" )
-		super( BaseMaterial, self ).__init__()
-		colorRgb = [0.8, 0.8, 0.8]
-		self.files = {}
-		self.colors = {}
+		BaseMaterial.__init__(self)
+		#print "should've called base con"
 		self.material = materialSet["material"]
-		self.wraps = []
-		self.wraps.append( materialSet["repeat_u"] )
-		self.wraps.append( materialSet["repeat_v"] )
 		self.name = self.material.GetName()
+		#GL_REPEAT: The integer part of the coordinate will be ignored and a repeating pattern is formed.
+		#GL_MIRRORED_REPEAT: The texture will also be repeated, but it will be mirrored when the integer part of the coordinate is odd.
+		#GL_CLAMP_TO_EDGE: The coordinate will simply be clamped between 0 and 1.
+		#GL_CLAMP_TO_BORDER: The coordinates that fall outside the range will be given a specified border color.
+		# TODO: decide what the different values determine
+		if materialSet["repeat_u"] == 1.0:
+			self.wraps.append( GltfWriter.CLAMP_TO_EDGE )
+		else:
+			self.wraps.append( GltfWriter.REPEAT )
+		if materialSet["repeat_v"] == 1.0:
+			self.wraps.append( GltfWriter.CLAMP_TO_EDGE )
+		else:
+			self.wraps.append( GltfWriter.REPEAT )
 		
 		# TODO: decide what to do with these.	
 		# c4d.MATERIAL_USE_FOG c4d.MATERIAL_USE_SPECULAR c4d.MATERIAL_USE_GLOW
 		
-		for use, texture, color, key in C4DMaterial.materialVals:
+		for use, texture, color, key in C4DMaterial.MATERIAL_VALS:
 			self.cacheMaterialValues( use, texture, color, key )
 
 		# TODO: How do we find these values
@@ -684,68 +797,12 @@ class C4DMaterial( BaseMaterial ):
 		if self.material[use]==True:         
 			if self.material[texture]:
 				if self.material[texture].GetType() == c4d.Xbitmap:
-					self.files["color"] = str(self.material[texture][c4d.BITMAPSHADER_FILENAME])
+					self.files[key] = str(self.material[texture][c4d.BITMAPSHADER_FILENAME])
 				else:
 					print "only supported shaders are bitmapshader!"
 			elif self.material[color]:
-				self.colors["color"] = convertColor(self.material[color]) 
+				self.colors[key] = convertColor(self.material[color]) 
 		pass
-
-	## getName
-	def getName( self ): return self.name.replace( " ", "_" )
-	def getKey( self ): return "material-" + self.name 
-
-	def gltf( self, writer ):
-		values = {}
-		colorFile = ""
-
-		# TODO: pull out transparency, transparent, ambient, emission, 
-		# shininess, and grab repeats for samplers
-
-		#GL_REPEAT: The integer part of the coordinate will be ignored and a repeating pattern is formed.
-		#GL_MIRRORED_REPEAT: The texture will also be repeated, but it will be mirrored when the integer part of the coordinate is odd.
-		#GL_CLAMP_TO_EDGE: The coordinate will simply be clamped between 0 and 1.
-		#GL_CLAMP_TO_BORDER: The coordinates that fall outside the range will be given a specified border color.
-		fileKeys = self.files.keys()
-		if len( fileKeys ) > 0:
-			wraps = []
-			for wrap in self.wraps:
-				if wrap == 1.0:
-					wraps.append( GltfWriter.CLAMP_TO_EDGE )
-				else:
-					wraps.append( GltfWriter.REPEAT )
-
-			samplerKey = writer.appendSampler( wraps[0], wraps[1] )
-
-			for key in fileKeys:
-				filename = self.files[key]
-				if key == "color":
-					colorFile = filename
-				imageKey = writer.appendImage( filename ) 
-				textureKey = writer.appendTexture( imageKey, samplerKey )
-				values[key] = textureKey
-				pass
-
-		colorKeys = self.colors.keys()
-		for color in colorKeys:
-			values[color] = self.colors[color]
-			pass
-
-		tempMaterial = {}
-		tempMaterial["values"] = values
-		tempMaterial["name"] = self.getName()
-
-		writer.techniqueNum = writer.techniqueNum + 1
-		techniqueKey = "technique_" + str(writer.techniqueNum)
-		materialKey = "material-" + tempMaterial["name"]
-
-		if colorFile is not "":
-			materialKey = materialKey + colorFile
-		tempMaterial["technique"] = techniqueKey
-		writer.appendMaterial( materialKey, tempMaterial )
-		return techniqueKey, materialKey
-	## class C4DMaterial
-	pass
 
 ## \class BaseMesh
 #
@@ -754,12 +811,11 @@ class C4DMesh( BaseMesh ):
 	## c'tor
 	def __init__( self, meshObj ):
 		#print( "BaseMesh c'tor" )
-		super( BaseMesh, self ).__init__()
+		BaseMesh.__init__( self )
 		# name is whatever
 		self.meshObj = meshObj
-		self.name = meshObj.GetName() + " Shape"
+		self.name = meshObj.GetName()
 		# key has to be unique, which this probably won't
-		self.primitives = []
 		# first we get the division of faces
 		materialSets = self.getMaterialSets()
 		for materialSet in materialSets: 
@@ -947,23 +1003,7 @@ class C4DMesh( BaseMesh ):
 
 		# Return
 		return triMesh
-		pass		
-
-	## getName
-	def getName( self ): return self.name 
-	def getKey( self ): return self.name.replace( " ", "_" ) + "-lib"
-	## getTriMeshes
-	def getTriMeshes( self ): return this.meshes	
-
-	def gltf( self, writer ):
-		primitives = []
-		for prim in self.primitives:
-			prim["material"].gltf( writer )			
-			primitives.append( writer.createPrimitive( prim["trimesh"], prim["material"].getKey() ) )
-			pass
-		writer.appendMesh( self.getName(), primitives )
-		pass
-
+		pass	
 	## class BaseMesh
 	pass
 
@@ -971,11 +1011,10 @@ class C4DMesh( BaseMesh ):
 #
 #
 class C4DCamera( BaseCamera ):
-	PROJECTION = 0
-	ORTHOGRAPHIC = 1
 	## c'tor
 	def __init__( self, cameraInfo ):
 		#print( "BaseCamera c'tor" )	
+		BaseCamera.__init__(self)
 		self.name = cameraInfo.GetName()
 		self.projectionType = cameraInfo[c4d.CAMERA_PROJECTION]
 		# ugly but that's c4d
@@ -985,42 +1024,20 @@ class C4DCamera( BaseCamera ):
 
 		if self.projectionType == c4d.Pperspective:
 			# TODO: How do we get aspect ratio
-			self.projectionType = C4DCamera.PROJECTION
+			self.projectionType = BaseCamera.PROJECTION
 			self.aspectRatio = aspectRatio
 			self.yfov = cameraInfo[c4d.CAMERAOBJECT_FOV_VERTICAL]
 			self.type = "perspective"
 		# TODO: how do we figure out if this is an orthographic
 		else:
 			# TODO: How do we get xmag, ymag
-			self.projectionType = C4DCamera.ORTHOGRAPHIC
+			self.projectionType = BaseCamera.ORTHOGRAPHIC
 			self.xmag = 1
 			self.ymag = 1
 			self.type = "orthographic"
 
 		self.zfar = cameraInfo[c4d.CAMERAOBJECT_FAR_CLIPPING]
 		self.znear = cameraInfo[c4d.CAMERAOBJECT_NEAR_CLIPPING]	
-		pass
-	## getName
-	def getName( self ): return self.name
-	## getKey
-	def getKey( self ): return "camera_" + self.name
-	## gltf
-	def gltf( self, writer ):
-		tempCameraObject = {}
-		tempTypeObj = {}
-		if self.projectionType == C4DCamera.PROJECTION:
-			tempTypeObj["aspectRatio"] = self.aspectRatio
-			tempTypeObj["yfov"] = self.yfov
-			tempCameraObject["type"] = "perspective"
-		else:
-			tempTypeObj["xmag"] = self.xmag
-			tempTypeObj["ymag"] = self.ymag
-			tempCameraObject["type"] = "orthographic"
-
-		tempTypeObj["zfar"] = self.zfar
-		tempTypeObj["znear"] = self.znear
-		tempCameraObject[tempCameraObject["type"]] = tempTypeObj
-		writer.cameras[self.getKey()] = tempCameraObject
 		pass
 	## class BaseCamera
 	pass
@@ -1031,18 +1048,10 @@ class C4DCamera( BaseCamera ):
 class C4DLight( BaseLight ):
 	## c'tor
 	def __init__( self, obj ):
-		#print( "BaseLight c'tor" )	
+		#print( "BaseLight c'tor" )
+		BaseLight.__init__(self)	
 		self.name = obj.GetName()	
 		pass
-
-	## getName
-	def getName( self ): self.name
-	def getKey( self ): return "light_" + self.name
-
-	def gltf( self, writer ):
-		
-		pass
-
 	## class BaseLight
 	pass	
 
@@ -1050,26 +1059,11 @@ class C4DNode( BaseNode ):
 	## c'tor
 	def __init__( self, obj ):
 		#print( "C4DNode c'tor" )
-		super( C4DNode, self ).__init__()	
+		BaseNode.__init__( self )	
 		self.obj = obj
 		self.name = self.obj.GetName()
-		# types
-		self.cached = False
-		self.hasMesh = False 
-		self.hasCamera = False 
-		self.hasLight = False
-		self.isNull = False 
-		self.meshes = []
-		self.childNodes = []
-		# cache the relative matrix
-		self.matrix = convertC4DMatrix( self.obj.GetMl() )
-		trans = self.obj.GetRelPos()
-		self.translation = [ trans.x, trans.y, trans.z ]
-		scale = self.obj.GetRelScale()
-		self.scale = [ scale.x, scale.y, scale.z ]
-		# NOTE: HPB rotation euler need to convert
-		rot = self.obj.GetRelRot()
-		self.rotation = [ rot.x, rot.y, rot.z ]
+		# extract transformation
+		self.extractTranform()
 		# cache attributes
 		self.determineCacheAttributes()
 		# cache attributes
@@ -1080,7 +1074,18 @@ class C4DNode( BaseNode ):
 			self.childNodes.append( C4DNode( childBegIt ) )
 			childBegIt = childBegIt.GetNext()
 			pass
+		pass
 
+	def extractTranform( self ):
+		# cache the relative matrix
+		self.matrix = convertC4DMatrix( self.obj.GetMl() )
+		trans = self.obj.GetRelPos()
+		self.translation = [ trans.x, trans.y, trans.z ]
+		scale = self.obj.GetRelScale()
+		self.scale = [ scale.x, scale.y, scale.z ]
+		# NOTE: HPB rotation euler need to convert
+		rot = self.obj.GetRelRot()
+		self.rotation = [ rot.x, rot.y, rot.z ]
 		pass
 
 	def determineAnimation( self ):
@@ -1152,57 +1157,13 @@ class C4DNode( BaseNode ):
 		# cache the few attributes, possibly this isn't needed
 		pass
 
-	def gltf( self, writer ):
-		if self.hasMesh:
-			meshKeys = []
-			for mesh in self.meshes:
-				mesh.gltf( writer )
-				meshKeys.append( mesh.getKey() )
-				pass
-			writer.appendMeshNode( self.getKey(), self.getName(), self.getTransform(), meshKeys )
-			pass
-		elif self.hasCamera:
-			self.camera.gltf( writer )
-			writer.appendCameraNode( self.getKey(), self.getName(), self.getTransform(), self.camera.getKey() )
-			pass
-		elif self.hasLight:
-			self.light.gltf( writer )
-			writer.appendLightNode( self.getKey(), self.getName(), self.getTransform(), self.light.getKey() )
-			pass
-		elif self.isNull:
-			writer.appendNode( self.getKey(), self.getName(), self.getTransform() )
-
-		for child in self.childNodes:
-			key = child.getKey()
-			child.gltf( writer )
-			writer.appendChild( self.getKey(), key )
-			pass
-		pass
-
-	## getName
-	def getName( self ): return self.name
-	## TODO: this isn't safe for uniqueness
-	def getKey( self ): return self.name.replace( " ", "_" )
-
-	def getParentKey( self ):
-		parent = self.obj.GetUp()
-		if parent != None:
-			return parent.GetName().replace( " ", "_" )
-		return ""
-		pass
-
-	def getTransform( self ): return self.matrix
-	def getTranslate( self ): return self.translation
-	def getRotation( self ): return self.rotation
-	def getScale( self ): return self.scale
-
 	## class BaseLight
 	pass	
 
 class C4DExporter( BaseExporter ):
 
 	def __init__( self, options, path ):
-		super( C4DExporter, self ).__init__( options, path )
+		BaseExporter.__init__( self, options, path )
 		#print( "C4DExporter c'tor" )
 		self.gltfFilePath = None		
 		self.gltfAsset = None
