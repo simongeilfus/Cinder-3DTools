@@ -1,6 +1,6 @@
 
 from TriMeshWriter import TriMeshWriter
-
+import GltfWriter
 ## \class BaseMaterial
 #
 #
@@ -109,6 +109,10 @@ class BaseNode( object ):
 		raise NotImplementedError()
 		pass
 
+	def getParentName( self ):
+		raise NotImplementedError()
+		pass
+
 	def getTransform( self ):
 		raise NotImplementedError()
 		pass
@@ -133,11 +137,13 @@ class BaseNode( object ):
 #
 class BaseExporter( object ):
 	## c'tor
-	def __init__( self ):
+	def __init__( self, options, path ):
 		print( "BaseExporter c'tor" )
-		self.path = None
-		self.meshes = []
-		self.materials = []
+		self.outputPath = path
+		self.bakeColor = options["bakeColor"]
+		self.bakeTransform = options["bakeTransform"]
+		self.selected = options["selected"]
+		self.angleWeightedNormals = options["angleWeightedNormals"]
 		pass
 
 	## getMeshes
