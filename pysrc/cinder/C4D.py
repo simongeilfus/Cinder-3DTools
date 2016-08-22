@@ -76,7 +76,7 @@ class GltfWriter( object ):
 	SAMPLER_3D  = 0x8B5F
 	SAMPLER_CUBE= 0x8B60
 
-	def __init__( self, sceneName ):
+	def __init__( self, sceneName, outputPath, srcPath ):
 		# gltf objects
 		self.nodes = {}
 		self.accessors = {}
@@ -121,6 +121,32 @@ class GltfWriter( object ):
 		tempProfile["version"] = "1.0.2"
 		self.asset["profile"] = tempProfile
 		self.asset["version"] = "1.0"
+
+		# Json scene file path
+		self.outputPath = outputPath
+		self.srcPath = srcPath
+		self.binFilePath = os.path.join( self.outputPath, self.bufferName + ".bin" )
+		self.binFilePath = self.binFilePath.replace( "\\", "/" )	
+		self.gltfFilePath = os.path.join( self.outputPath, self.scene + ".gltf" )
+		self.gltfFilePath = self.gltfFilePath.replace( "\\", "/" )
+		pass
+
+	def finalize( self ):
+		# finalize the byte buffer
+		self.finalizeBuffer()
+		# copy the assets
+		self.copyImages()
+		# write the binfile
+		binFile = open( self.binFilePath, "w" )
+		binFile.write( self.buffer )
+		print( "Wrote %s" % self.binFilePath )
+		# finalize the asset
+		prettyJson = self.finalizeAsset()
+		# write it out
+		gltfFile = open( self.gltfFilePath, "w" )
+		gltfFile.write( prettyJson )	
+		print( "Wrote %s" % self.gltfFilePath )
+
 		pass
 
 	def finalizeAsset( self ):
@@ -200,11 +226,11 @@ class GltfWriter( object ):
 		self.buffers[self.bufferName] = tempBuffer
 		pass
 
-	def copyImages( self, srcPath, dstPath ):
+	def copyImages( self ):
 		for imageInfo in self.imagePathsToMove:
 			fileName = imageInfo
-			src = os.path.join( srcPath, fileName )
-			dst = os.path.join( dstPath, fileName )
+			src = os.path.join( self.srcPath, fileName )
+			dst = os.path.join( self.outputPath, fileName )
 			print src
 			print dst
 			shutil.copyfile( src, dst )
@@ -506,7 +532,8 @@ class BaseCamera( object ):
 		self.ymag = None 
 		self.zfar = None 
 		self.znear = None
-		self.cameraType = None # should be either Projection or orthographic above
+		# should be either Projection or Orthographic above
+		self.cameraType = None 
 		pass
 	## getName
 	def getName( self ): 
@@ -636,17 +663,17 @@ class BaseNode( object ):
 #
 class BaseExporter( object ):
 	## c'tor
-	def __init__( self, options, path ):
+	def __init__( self ):
 		#print( "BaseExporter c'tor" )
-		self.outputPath = path
-		self.bakeColor = options["bakeColor"]
-		self.bakeTransform = options["bakeTransform"]
-		self.selected = options["selected"]
-		self.angleWeightedNormals = options["angleWeightedNormals"]
+		self.outputPath = None
 		pass
 
 	## getMeshes
 	def getMeshes( self ):
+		raise NotImplementedError()
+		pass
+
+	def cacheNodes( self ):
 		raise NotImplementedError()
 		pass
 
@@ -655,8 +682,14 @@ class BaseExporter( object ):
 		raise NotImplementedError()
 		pass
 
-	## exportMeshes
-	def exportMeshes( self ):
+	def exportTriMesh( self ):
+		# Get meshes
+		if selected:
+			self.meshes = self.getMeshesSelected()
+		else:
+			self.meshes = self.getMeshes()
+			pass
+		# Do export
 		# Bail if there's nothing to export
 		if 0 == len( self.meshes ):
 			print( "Nothing to export" )
@@ -667,22 +700,60 @@ class BaseExporter( object ):
 		tw.write()
 		pass
 
-	## export
-	def export( self, path, *args, **kwargs ):
-		self.path = path
-		# Parse arguments
-		selected = kwargs.get( "selected", False )
-		# Get meshes
-		if selected:
-			self.meshes = self.getMeshesSelected()
-		else:
-			self.meshes = self.getMeshes()
+	def exportGltf( self ):
+		self.gltf = GltfWriter( self.sceneFileName, self.outputPath, self.documentPath )
+		# gather the top of the heirarchy nodes
+		topNodes = []
+		for node in self.nodes:
+			topNodes.append( node.getKey() )
+			# write to gltf
+			node.gltf( self.gltf )
 			pass
-		# Do export
-		self.exportMeshes()
+
+		# add the top nodes and create the scene object
+		self.gltf.appendScene( self.sceneName, topNodes )
+		# 
+		self.gltf.finalize()
 		pass
 
-	# class BaseExporter
+	## exportSelected
+	def export( self, path, *args, **kwargs ):
+		# Error check arguments
+		validKeys = ["bakeTransform", "angleWeightedNormals", "bakeColor", "selected"]
+		for key in kwargs.keys():
+			if key not in validKeys:
+				raise RuntimeError( "Unknown paramemter: %s" % key )
+		# Grab arguemnts
+		# TODO: Make this a global so we don't have to pass it everywhere
+		options = {}
+		options["bakeTransform"] = kwargs.get( "bakeTransform", False )
+		options["angleWeightedNormals"] = kwargs.get( "angleWeightedNormals", False )
+		options["bakeColor"] = kwargs.get( "bakeColor", True )
+		options["selected"] = kwargs.get( "selected", True )
+
+		self.outputPath = path
+
+		self.cacheNodes()
+
+		if self.sceneFileName is None:
+			print "No scene file name. Using untitled."
+			self.sceneFileName = "untitled"
+			pass
+		# build the scene name
+		self.sceneFileName = self.sceneFileName.replace( " ", "_" )
+		# split it
+		[sceneFile, sceneExt] = os.path.splitext( os.path.basename( self.sceneFileName ) )
+		self.sceneName = sceneFile
+		# get the output path
+		self.outputPath = os.path.join( self.outputPath, self.sceneName )
+		print( "Exporting as Cinder Gltf data to %s" % self.outputPath )
+		# create it if it doesn't exist
+		if not os.path.exists( self.outputPath ):
+			os.makedirs( self.outputPath )	
+		
+		self.exportGltf()
+		pass		
+	# class BaseExporter 
 	pass
 
 
@@ -1027,14 +1098,14 @@ class C4DCamera( BaseCamera ):
 			self.projectionType = BaseCamera.PROJECTION
 			self.aspectRatio = aspectRatio
 			self.yfov = cameraInfo[c4d.CAMERAOBJECT_FOV_VERTICAL]
-			self.type = "perspective"
+			self.cameraType = BaseCamera.PROJECTION
 		# TODO: how do we figure out if this is an orthographic
 		else:
 			# TODO: How do we get xmag, ymag
 			self.projectionType = BaseCamera.ORTHOGRAPHIC
 			self.xmag = 1
 			self.ymag = 1
-			self.type = "orthographic"
+			self.cameraType = BaseCamera.ORTHOGRAPHIC
 
 		self.zfar = cameraInfo[c4d.CAMERAOBJECT_FAR_CLIPPING]
 		self.znear = cameraInfo[c4d.CAMERAOBJECT_NEAR_CLIPPING]	
@@ -1162,19 +1233,14 @@ class C4DNode( BaseNode ):
 
 class C4DExporter( BaseExporter ):
 
-	def __init__( self, options, path ):
-		BaseExporter.__init__( self, options, path )
+	def __init__( self ):
+		BaseExporter.__init__( self )
 		#print( "C4DExporter c'tor" )
-		self.gltfFilePath = None		
-		self.gltfAsset = None
-		self.documentPath = None
-		self.path = None
 		pass
 	# class BaseExporter
 	pass
 
-	## exportSelected
-	def exportSelected( self ):
+	def cacheNodes( self ):
 		doc = c4d.documents.GetActiveDocument()
 
 		selected = doc.GetActiveObjects( c4d.GETACTIVEOBJECTFLAGS_SELECTIONORDER )
@@ -1190,63 +1256,5 @@ class C4DExporter( BaseExporter ):
 			pass
 
 		# Create a directory using the scene name
-		sceneFileName = doc.GetDocumentName()
-		if sceneFileName is None:
-			sceneFileName = "untitled"
-			pass
-		sceneFileName = sceneFileName.replace( " ", "_" )
-		self.gltfAsset = GltfWriter( sceneFileName )
-		[sceneFile, sceneExt] = os.path.splitext( os.path.basename( sceneFileName ) )
-		path = os.path.join( self.outputPath, sceneFile )
-		print( "Exporting as Cinder TriMesh data to %s" % path )
-		if not os.path.exists( path ):
-			os.makedirs( path )
-		# Json scene file path
-		self.binFilePath = os.path.join( path, self.gltfAsset.bufferName + ".bin" )
-		self.binFilePath = self.binFilePath.replace( "\\", "/" )	
-		self.gltfFilePath = os.path.join( path, sceneFile + ".gltf" )
-		self.gltfFilePath = self.gltfFilePath.replace( "\\", "/" )	
-		topNodes = []
-
-		for node in self.nodes:
-			topNodes.append( node.getKey() )
-			node.gltf( self.gltfAsset )
-			pass
-
-		# add the top nodes and create the scene object
-		self.gltfAsset.appendScene( sceneFileName, topNodes )
-
-		# finalize the byte buffer
-		self.gltfAsset.finalizeBuffer()
-		# write it out
-		self.gltfAsset.copyImages( self.documentPath, path )
-		binFile = open( self.binFilePath, "w" )
-		binFile.write( self.gltfAsset.buffer )
-		print( "Wrote %s" % self.binFilePath )
-		# finalize the asset
-		prettyJson = self.gltfAsset.finalizeAsset()
-		# write it out
-		gltfFile = open( self.gltfFilePath, "w" )
-		gltfFile.write( prettyJson )	
-		print( "Wrote %s" % self.gltfFilePath )
-		pass		
-	# class GltfExporter 
-	pass
-
-def exportSelected( path, *args, **kwargs ):
-	# Error check arguments
-	validKeys = ["bakeTransform", "angleWeightedNormals", "bakeColor", "selected"]
-	for key in kwargs.keys():
-		if key not in validKeys:
-			raise RuntimeError( "Unknown paramemter: %s" % key )
-	# Grab arguemnts
-	options = {}
-	options["bakeTransform"] = kwargs.get( "bakeTransform", False )
-	options["angleWeightedNormals"] = kwargs.get( "angleWeightedNormals", False )
-	options["bakeColor"] = kwargs.get( "bakeColor", True )
-	options["selected"] = kwargs.get( "selected", True )
-	# Run exporter
-	# Run exporter
-	exporter = C4DExporter( options, path )
-	exporter.exportSelected()
-	pass
+		self.sceneFileName = doc.GetDocumentName()
+		pass

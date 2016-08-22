@@ -1,4 +1,5 @@
-import c4d
+from TriMesh import TriMesh
+
 import array
 import math
 import os
@@ -8,6 +9,7 @@ import json
 import shutil
 
 class GltfWriter( object ):
+	# components
 	SCALAR = "SCALAR"
 	VEC2 = "VEC2"
 	VEC3 = "VEC3"
@@ -15,23 +17,28 @@ class GltfWriter( object ):
 	MAT2 = "MAT2"
 	MAT3 = "MAT3"
 	MAT4 = "MAT4"
+	# data types
 	BYTE = 0x1400 #GL_BYTE
 	UNSIGNED_BYTE = 0x1401 #GL_UNSIGNED_BYTE
 	SHORT = 0x1402 #GL_SHORT,
 	UNSIGNED_SHORT = 0x1403 #GL_UNSIGNED_SHORT,
 	FLOAT = 0x1406 #GL_FLOAT
+	# buffer 
 	ARRAY_BUFFER = 34962
 	ELEMENT_ARRAY_BUFFER = 34963
 	TEXTURE_2D = 3553
+	# pixel data types
 	UNSIGNED_BYTE = 5121
 	UNSIGNED_SHORT_5_6_5 = 33635
 	UNSIGNED_SHORT_4_4_4_4 = 32819 
 	UNSIGNED_SHORT_5_5_5_1 = 32820
+	# Pixel order
 	ALPHA = 6406 
 	RGB = 6407 
 	RGBA = 6408
 	LUMINANCE = 6409 
 	LUMINANCE_ALPHA = 6410
+	# Sampler defines
 	NEAREST = 9728 
 	LINEAR = 9729
 	NEAREST_MIPMAP_NEAREST = 9984
@@ -41,8 +48,26 @@ class GltfWriter( object ):
 	CLAMP_TO_EDGE = 33071
 	MIRRORED_REPEAT = 33648
 	REPEAT = 10497
+	# types
+	FLOAT_VEC2 	= 0x8B50
+	FLOAT_VEC3  = 0x8B51
+	FLOAT_VEC4  = 0x8B52
+	INT_VEC2    = 0x8B53
+	INT_VEC3    = 0x8B54
+	INT_VEC4    = 0x8B55
+	BOOL        = 0x8B56
+	BOOL_VEC2   = 0x8B57
+	BOOL_VEC3   = 0x8B58
+	BOOL_VEC4   = 0x8B59
+	FLOAT_MAT2  = 0x8B5A
+	FLOAT_MAT3  = 0x8B5B
+	FLOAT_MAT4  = 0x8B5C
+	SAMPLER_1D  = 0x8B5D
+	SAMPLER_2D  = 0x8B5E
+	SAMPLER_3D  = 0x8B5F
+	SAMPLER_CUBE= 0x8B60
 
-	def __init__( self, sceneName ):
+	def __init__( self, sceneName, outputPath, srcPath ):
 		# gltf objects
 		self.nodes = {}
 		self.accessors = {}
@@ -87,6 +112,32 @@ class GltfWriter( object ):
 		tempProfile["version"] = "1.0.2"
 		self.asset["profile"] = tempProfile
 		self.asset["version"] = "1.0"
+
+		# Json scene file path
+		self.outputPath = outputPath
+		self.srcPath = srcPath
+		self.binFilePath = os.path.join( self.outputPath, self.bufferName + ".bin" )
+		self.binFilePath = self.binFilePath.replace( "\\", "/" )	
+		self.gltfFilePath = os.path.join( self.outputPath, self.scene + ".gltf" )
+		self.gltfFilePath = self.gltfFilePath.replace( "\\", "/" )
+		pass
+
+	def finalize( self ):
+		# finalize the byte buffer
+		self.finalizeBuffer()
+		# copy the assets
+		self.copyImages()
+		# write the binfile
+		binFile = open( self.binFilePath, "w" )
+		binFile.write( self.buffer )
+		print( "Wrote %s" % self.binFilePath )
+		# finalize the asset
+		prettyJson = self.finalizeAsset()
+		# write it out
+		gltfFile = open( self.gltfFilePath, "w" )
+		gltfFile.write( prettyJson )	
+		print( "Wrote %s" % self.gltfFilePath )
+
 		pass
 
 	def finalizeAsset( self ):
@@ -166,12 +217,11 @@ class GltfWriter( object ):
 		self.buffers[self.bufferName] = tempBuffer
 		pass
 
-	def copyImages( self, dstPath ):
+	def copyImages( self ):
 		for imageInfo in self.imagePathsToMove:
-			fileName = imageInfo["fileName"]
-			srcPath = imageInfo["path"]
-			src = os.path.join( srcPath, fileName )
-			dst = os.path.join( dstPath, fileName )
+			fileName = imageInfo
+			src = os.path.join( self.srcPath, fileName )
+			dst = os.path.join( self.outputPath, fileName )
 			print src
 			print dst
 			shutil.copyfile( src, dst )
@@ -206,25 +256,25 @@ class GltfWriter( object ):
 		return name
 		pass
 
-	def appendImage( self, fileName, pathToFile ):
+	def appendImage( self, fileName ):
 		tempImage = {}
 		tempImage["uri"] = fileName
 		tempImage["name"] = fileName[0:fileName.index(".")]
 		imageKey = "image-" + tempImage["name"]
 		self.images[imageKey] = tempImage
-		self.imagePathsToMove.append( { "fileName": fileName, "path": pathToFile } )
+		self.imagePathsToMove.append( fileName )
 		return imageKey
 		pass
 
-	def appendSampler( self ):
+	def appendSampler( self, wrapS, wrapT ):
 		tempSampler = {}
 		# TODO: How do we figure this out
 		tempSampler["magFilter"] = self.LINEAR
 		tempSampler["minFilter"] = self.NEAREST_MIPMAP_LINEAR
-		tempSampler["wrapT"] = self.REPEAT
-		tempSampler["wrapS"] = self.REPEAT
+		tempSampler["wrapS"] = wrapS
+		tempSampler["wrapT"] = wrapT
 		self.samplerNum = self.samplerNum + 1
-		samplerKey = "sampler-" + str(self.samplerNum)
+		samplerKey = "sampler_" + str(self.samplerNum)
 		tempSampler["name"] = samplerKey
 		self.samplers[samplerKey] = tempSampler
 		return samplerKey
@@ -309,58 +359,51 @@ class GltfWriter( object ):
 		tempPrimitive["attributes"] = tempAttributes
 		return tempPrimitive
 
-	def appendMesh( self, meshName, primitives ):
+	def appendMesh( self, meshKey, meshName, primitives ):
 		# make temp mesh object
 		tempMesh = {}
 		tempMesh["name"] = meshName
 		tempMesh["primitives"] = primitives
-		meshKey = meshName.replace( " ", "_" ) + "-lib"
 		self.meshes[meshKey] = tempMesh
 		return meshKey
 		pass
 
-	def appendMeshNode( self, parentName, nodeName, matrix, meshKeys ):
-		if parentName != "":
-			for node in self.nodes:
-				if node["name"] == parentName:
-					node["children"].append(nodeName)
-					break
+	def appendMeshNode( self, nodeKey, nodeName, matrix, meshKeys ):
 		tempNode = {}
 		tempNode["name"] = nodeName
 		tempNode["matrix"] = matrix
 		tempNode["meshes"] = meshKeys
-		nodeKey = nodeName.replace( " ", "_" )
 		self.nodes[nodeKey] = tempNode
-		return nodeKey
+		pass
 
-	def appendCameraNode( self, parentName, nodeName, matrix, cameraKey ):
-		if parentName != "":
-			for node in self.nodes:
-				if node["name"] == parentName:
-					node["children"].append(nodeName)
-					break
+	def appendCameraNode( self, nodeKey, nodeName, matrix, cameraKey ):
 		tempNode = {}
 		tempNode["name"] = nodeName
 		tempNode["matrix"] = matrix
 		tempNode["camera"] = cameraKey
-		nodeKey = nodeName.replace(" ", "_")
 		self.nodes[nodeKey] = tempNode
-		return nodeKey
 		pass
 
-	def appendLightNode( self, parentName, nodeName, matrix, lightKey ):
-		if parentName != "":
-			for node in self.nodes:
-				if node["name"] == parentName:
-					node["children"].append(nodeName)
-					break
+	def appendLightNode( self, nodeKey, nodeName, matrix, lightKey ):
 		tempNode = {}
 		tempNode["name"] = nodeName
 		tempNode["matrix"] = matrix
 		tempNode["light"] = lightKey
-		nodeKey = nodeName.replace(" ", "_")
 		self.nodes[nodeKey] = tempNode
-		return nodeKey
+		pass
+
+	def appendNode( self, nodeKey, nodeName, matrix ):
+		tempNode = {}
+		tempNode["name"] = nodeName
+		tempNode["matrix"] = matrix
+		self.nodes[nodeKey] = tempNode
+		pass
+
+	def appendChild( self, parentKey, childKey ):
+		if "children" in self.nodes[parentKey]:
+			self.nodes[parentKey]["children"].append(childKey)
+		else:
+			self.nodes[parentKey]["children"] = [childKey]
 		pass
 
 	def appendMaterial( self, materialKey, materialInfo ):

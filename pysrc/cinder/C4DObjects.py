@@ -4,14 +4,11 @@ from Base import BaseLight
 from Base import BaseCamera
 from Base import BaseNode
 
+from GltfWriter import GltfWriter
+
 import c4d
 import array
 import math
-import os
-import re
-import struct
-import json
-import shutil
 
 class _c4d( object ):
 	OBJECT_BASE_MESH	= 5100
@@ -72,8 +69,7 @@ def convertC4DMatrix( c4dMatrix ):
 	return elements
 	pass
 
-
-def convertColor( self, colorVec ):
+def convertColor( colorVec ):
 	return [colorVec.x, colorVec.y, colorVec.z, 1.0]
 
 ## \class C4DMaterial
@@ -81,59 +77,39 @@ def convertColor( self, colorVec ):
 #
 class C4DMaterial( BaseMaterial ):
 	## c'tor
-	def __init__( self, materialSet ):
-		print( "C4DMaterial c'tor" )
-		super( BaseMaterial, self ).__init__()
-		colorRgb = [0.8, 0.8, 0.8]
-		self.files = {}
-		self.colors = {}
-		self.material = materialSet["material"]
-		self.repeat_u = materialSet["repeat_u"]
-		self.repeat_v = materialSet["repeat_v"]
-		self.name = self.material.GetName()
+	MATERIAL_VALS = [
+		(c4d.MATERIAL_USE_TRANSPARENCY, None, 							c4d.MATERIAL_TRANSPARENCY_COLOR, "transparency"),
+		(c4d.MATERIAL_USE_COLOR, 		c4d.MATERIAL_COLOR_SHADER, 		c4d.MATERIAL_COLOR_COLOR, "color"),
+		(c4d.MATERIAL_USE_NORMAL, 		c4d.MATERIAL_NORMAL_SHADER, 	None, "normal" ),
+		(c4d.MATERIAL_USE_DIFFUSION, 	c4d.MATERIAL_DIFFUSION_SHADER, 	None, "diffuse"),
+		(c4d.MATERIAL_USE_SPECULARCOLOR,c4d.MATERIAL_SPECULAR_SHADER, 	c4d.MATERIAL_SPECULAR_COLOR, "specular")
+	]
 
-		if self.material[c4d.MATERIAL_USE_TRANSPARENCY]:
-			self.colors["transparent"] = True
-			self.colors["transparency"] = self.material[c4d.MATERIAL_TRANSPARENCY_COLOR]
-		if self.material[c4d.MATERIAL_USE_COLOR]==True:         
-			if self.material[c4d.MATERIAL_COLOR_SHADER]:
-				if self.material[c4d.MATERIAL_COLOR_SHADER].GetType() == c4d.Xbitmap:
-					self.files["color"] = str(self.material[c4d.MATERIAL_COLOR_SHADER][c4d.BITMAPSHADER_FILENAME])
-				else:
-					print "only supported shaders are bitmapshader!"
-			else:
-				self.colors["color"] = self.material[c4d.MATERIAL_COLOR_COLOR] 
-			    #exportData.AWDwarningObjects.append("
-		if self.material[c4d.MATERIAL_USE_NORMAL]:            
-			if self.material[c4d.MATERIAL_NORMAL_SHADER]:
-				if self.material[c4d.MATERIAL_NORMAL_SHADER].GetType() == c4d.Xbitmap:
-					self.files["normal"] = str(self.material[c4d.MATERIAL_NORMAL_SHADER][c4d.BITMAPSHADER_FILENAME])
-				else:
-					print "only supported shaders are bitmapshader!"   
-		if self.material[c4d.MATERIAL_USE_DIFFUSION]: # for now  use the diffuse tex as specularMap      
-			if self.material[c4d.MATERIAL_DIFFUSION_SHADER]:
-				if self.material[c4d.MATERIAL_DIFFUSION_SHADER].GetType() == c4d.Xbitmap:
-					self.files["diffuse"] = str(self.material[c4d.MATERIAL_DIFFUSION_SHADER][c4d.BITMAPSHADER_FILENAME])
-				else:
-					print "only supported shaders are bitmapshader!"
-			else:
-				self.colors["diffuse"] = self.material[c4d.MATERIAL_DIFFUSION_COLOR] 
-		if self.material[c4d.MATERIAL_USE_SPECULARCOLOR]:          
-			if self.material[c4d.MATERIAL_SPECULAR_SHADER]:
-			    if self.material[c4d.MATERIAL_SPECULAR_SHADER].GetType() == c4d.Xbitmap:
-					self.specularFile = str(self.material[c4d.MATERIAL_SPECULAR_SHADER][c4d.BITMAPSHADER_FILENAME])
-			    else:
-					print "only supported shaders are bitmapshader!"
-			else:
-				self.colors["material"] = self.material[c4d.MATERIAL_SPECULAR_COLOR] 
-			
-			
-		if self.material[c4d.MATERIAL_USE_FOG]:  
-			pass# add fog-method
-		if self.material[c4d.MATERIAL_USE_SPECULAR]:  
-			pass
-		if self.material[c4d.MATERIAL_USE_GLOW]:
-			pass
+	def __init__( self, materialSet ):
+		#print( "C4DMaterial c'tor" )
+		BaseMaterial.__init__(self)
+		#print "should've called base con"
+		self.material = materialSet["material"]
+		self.name = self.material.GetName()
+		#GL_REPEAT: The integer part of the coordinate will be ignored and a repeating pattern is formed.
+		#GL_MIRRORED_REPEAT: The texture will also be repeated, but it will be mirrored when the integer part of the coordinate is odd.
+		#GL_CLAMP_TO_EDGE: The coordinate will simply be clamped between 0 and 1.
+		#GL_CLAMP_TO_BORDER: The coordinates that fall outside the range will be given a specified border color.
+		# TODO: decide what the different values determine
+		if materialSet["repeat_u"] == 1.0:
+			self.wraps.append( GltfWriter.CLAMP_TO_EDGE )
+		else:
+			self.wraps.append( GltfWriter.REPEAT )
+		if materialSet["repeat_v"] == 1.0:
+			self.wraps.append( GltfWriter.CLAMP_TO_EDGE )
+		else:
+			self.wraps.append( GltfWriter.REPEAT )
+		
+		# TODO: decide what to do with these.	
+		# c4d.MATERIAL_USE_FOG c4d.MATERIAL_USE_SPECULAR c4d.MATERIAL_USE_GLOW
+		
+		for use, texture, color, key in C4DMaterial.MATERIAL_VALS:
+			self.cacheMaterialValues( use, texture, color, key )
 
 		# TODO: How do we find these values
 		self.colors["ambient"] = [0.2, 0.2, 0.2, 1.0]
@@ -141,95 +117,45 @@ class C4DMaterial( BaseMaterial ):
 		self.colors["shininess"] = 256.0
 		pass
 
-	## getName
-	def getName( self ): return self.name.replace( " ", "_" )
-	def getKey( self ): return "material-" + self.name 
-
-	def gltf( writer ):
-		values = {}
-		fileKeys = files.keys()
-		colorKeys = colors.keys()
-
-		# TODO: pull out transparency, transparent, ambient, emission, 
-		# shininess, and grab repeats for samplers
-
-		if "color" in fileKeys:
-			imageKey = self.images.append( files["colors"] ) 
-			samplerKey = self.gltfAsset.appendSampler()
-			textureKey = self.gltfAsset.appendTexture( imageKey, samplerKey )
-			values["color"] = textureKey
-		elif "color" in colorKeys:
-			values["color"] = self.convertColor( colorVec )
-
-		if "diffuse" in files.keys():
-			imageKey = self.gltfAsset.appendImage( files["diffuse"], self.documentPath )
-			samplerKey = self.gltfAsset.appendSampler()
-			textureKey = self.gltfAsset.appendTexture( imageKey, samplerKey )
-			values["diffuse"] = textureKey
-		elif "diffuse" in files.keys():
-			values["diffuse"] = self.convertColor( diffuseVec )
-
-		if "specular" in files.keys():
-			imageKey = self.gltfAsset.appendImage( specularFile, self.documentPath )
-			samplerKey = self.gltfAsset.appendSampler()
-			textureKey = self.gltfAsset.appendTexture( imageKey, samplerKey )
-			values["specular"] = textureKey
-		elif "specular" in files.keys():
-			values["specular"] = self.convertColor( specularVec )
-
-		if "normal" in files.keys():
-			imageKey = self.gltfAsset.appendImage( normalFile, self.documentPath )
-			samplerKey = self.gltfAsset.appendSampler()
-			textureKey = self.gltfAsset.appendTexture( imageKey, samplerKey )
-			values["normal"] = textureKey
-		pass	
-
-		tempMaterial = {}
-		tempMaterial["values"] = values
-		tempMaterial["name"] = material.GetName().replace( " ", "_" )
-		self.gltfAsset.techniqueNum = self.gltfAsset.techniqueNum + 1
-		techniqueKey = "technique_" + str(self.gltfAsset.techniqueNum)
-		materialKey = "material-" + tempMaterial["name"]
-
-		if colorFile is not "":
-			materialKey = materialKey + colorFile
-		tempMaterial["technique"] = techniqueKey
-		self.gltfAsset.appendMaterial( materialKey, tempMaterial )
-		return techniqueKey, materialKey
-	## class C4DMaterial
-	pass
+	def cacheMaterialValues( self, use, texture, color, key ):
+		if self.material[use]==True:         
+			if self.material[texture]:
+				if self.material[texture].GetType() == c4d.Xbitmap:
+					self.files[key] = str(self.material[texture][c4d.BITMAPSHADER_FILENAME])
+				else:
+					print "only supported shaders are bitmapshader!"
+			elif self.material[color]:
+				self.colors[key] = convertColor(self.material[color]) 
+		pass
 
 ## \class BaseMesh
 #
 #
 class C4DMesh( BaseMesh ):
 	## c'tor
-	def __init__( self, meshObj, bakeColors ):
-		print( "BaseMesh c'tor" )
-		super( BaseMesh, self ).__init__()
+	def __init__( self, meshObj ):
+		#print( "BaseMesh c'tor" )
+		BaseMesh.__init__( self )
 		# name is whatever
-		self.name = nodeName + " Shape"
+		self.meshObj = meshObj
+		self.name = meshObj.GetName()
 		# key has to be unique, which this probably won't
-		self.primitives = []
-		colorRgb = None
-		if bakeColors:
-			colorRgb = [ 0.8, 0.8, 0.8 ]
 		# first we get the division of faces
 		materialSets = self.getMaterialSets()
 		for materialSet in materialSets: 
 			# Cache the material first
 			mat = C4DMaterial( materialSet )
 			# Cache the buffers
-			trimesh = self.createTriMesh( self.meshObj, material["faces"], colorRgb )
+			trimesh = self.createTriMesh( self.meshObj, materialSet["faces"] )
 			# push it on to the primitives
-			primitives.append( { "trimesh" : trimesh, "material" : mat } )		
+			self.primitives.append( { "trimesh" : trimesh, "material" : mat } )		
 			pass
 		pass
 
 	def getMaterialSets( self ):
 		materialSets = []
 		# Get tags
-		tags = polyObj.GetTags()
+		tags = self.meshObj.GetTags()
 		# Find the necessary tags
 		textureTags = []
 		selectionTags = {}
@@ -242,7 +168,7 @@ class C4DMesh( BaseMesh ):
 				pass
 			pass
 
-		polyCount = polyObj.GetPolygonCount()
+		polyCount = self.meshObj.GetPolygonCount()
 		usedFaces = []
 
 		# Ordering matters for restrictedTextureTags
@@ -264,9 +190,11 @@ class C4DMesh( BaseMesh ):
 				material = textureTags[0].GetMaterial()
 				faces = [i for i in range( polyCount )]
 				# decide if we should do U and V
+				# print "tex tile x", textureTags[0][c4d.TEXTURETAG_TILESX], "tex tile y", textureTags[0][c4d.TEXTURETAG_TILESY]
 				materialSets.append( { "material" : material, "faces" : faces, 
 									   "repeat_u" : textureTags[0][c4d.TEXTURETAG_TILESX],
 									   "repeat_v" : textureTags[0][c4d.TEXTURETAG_TILESY] } )
+
 				usedFaces.extend( faces )
 				pass
 
@@ -282,6 +210,8 @@ class C4DMesh( BaseMesh ):
 					usedFaces.append( faceIdx )
 				pass
 			if len( faces ) > 0:
+
+				print "tex tile x", textureTag[c4d.TEXTURETAG_TILESX], "tex tile y", textureTag[c4d.TEXTURETAG_TILESY]
 				materialSets.append( { "material" : material, "faces" : faces,
 									   "repeat_u" : textureTag[c4d.TEXTURETAG_TILESX],
 									   "repeat_v" : textureTag[c4d.TEXTURETAG_TILESY] } )	
@@ -339,9 +269,9 @@ class C4DMesh( BaseMesh ):
 				mv1 = polyVerts[fv1]
 				mv2 = polyVerts[fv2]
 				# Positions
-				P0 = points[mv0] * self.unitScale 
-				P1 = points[mv1] * self.unitScale
-				P2 = points[mv2] * self.unitScale
+				P0 = points[mv0] * _c4d.UNIT_SCALE 
+				P1 = points[mv1] * _c4d.UNIT_SCALE 
+				P2 = points[mv2] * _c4d.UNIT_SCALE 
 				#print( "P0", P0 )
 				#print( "P1", P1 )
 				#print( "P2", P2 )
@@ -383,7 +313,7 @@ class C4DMesh( BaseMesh ):
 				triMesh.appendPosition( P2[0], P2[1], P2[2] )
 				triMesh.appendNormal( N2[0], N2[1], N2[2] )
 				triMesh.appendTexCoord0( u2, v2 )
-
+				colorRgb = [ 0.8, 0.8, 0.8 ]
 				# TODO: how can we get vertex color info from the verts
 				if colorRgb:
 					triMesh.appendRgb( colorRgb[0], colorRgb[1], colorRgb[2] )
@@ -397,18 +327,7 @@ class C4DMesh( BaseMesh ):
 
 		# Return
 		return triMesh
-		pass		
-
-	## getName
-	def getName( self ): return self.name 
-	def getKey( self ): return self.name.replace( " ", "_" ) + "-lib"
-	## getTriMeshes
-	def getTriMeshes( self ): return this.meshes	
-
-	def gltf( writer ):
-		raise NotImplementedError()
-		pass
-
+		pass	
 	## class BaseMesh
 	pass
 
@@ -418,32 +337,32 @@ class C4DMesh( BaseMesh ):
 class C4DCamera( BaseCamera ):
 	## c'tor
 	def __init__( self, cameraInfo ):
-		print( "BaseCamera c'tor" )	
-		projectionType = cameraInfo[c4d.CAMERA_PROJECTION]
+		#print( "BaseCamera c'tor" )	
+		BaseCamera.__init__(self)
+		self.name = cameraInfo.GetName()
+		self.projectionType = cameraInfo[c4d.CAMERA_PROJECTION]
+		# ugly but that's c4d
+		doc = c4d.documents.GetActiveDocument()
+		renderData = doc.GetActiveRenderData()
+		aspectRatio = renderData[c4d.RDATA_FILMASPECT]
 
-		if projectionType == c4d.Pperspective:
+		if self.projectionType == c4d.Pperspective:
 			# TODO: How do we get aspect ratio
-			self.aspectRatio = 1.5
+			self.projectionType = BaseCamera.PROJECTION
+			self.aspectRatio = aspectRatio
 			self.yfov = cameraInfo[c4d.CAMERAOBJECT_FOV_VERTICAL]
-			self.type = "perspective"
+			self.cameraType = BaseCamera.PROJECTION
 		# TODO: how do we figure out if this is an orthographic
-		elif projectionType:
+		else:
 			# TODO: How do we get xmag, ymag
-			self.xmag = 1.5
-			self.ymag = cameraInfo[c4d.CAMERAOBJECT_FOV_VERTICAL]
-			self.type = "orthographic"
+			self.projectionType = BaseCamera.ORTHOGRAPHIC
+			self.xmag = 1
+			self.ymag = 1
+			self.cameraType = BaseCamera.ORTHOGRAPHIC
 
 		self.zfar = cameraInfo[c4d.CAMERAOBJECT_FAR_CLIPPING]
 		self.znear = cameraInfo[c4d.CAMERAOBJECT_NEAR_CLIPPING]	
 		pass
-
-	## getName
-	def getName( self ): return self.name
-	def getKey( self ): return "camera_" + self.name
-
-	def gltf( writer ):
-		pass
-
 	## class BaseCamera
 	pass
 
@@ -452,35 +371,36 @@ class C4DCamera( BaseCamera ):
 #
 class C4DLight( BaseLight ):
 	## c'tor
-	def __init__( self ):
-		print( "BaseLight c'tor" )		
+	def __init__( self, obj ):
+		#print( "BaseLight c'tor" )
+		BaseLight.__init__(self)	
+		self.name = obj.GetName()	
 		pass
-
-	## getName
-	def getName( self ): self.name
-	def getKey( self ): return "light_" + self.name
-
-	def gltf( writer ):
-		raise NotImplementedError()
-		pass
-
 	## class BaseLight
 	pass	
 
 class C4DNode( BaseNode ):
 	## c'tor
 	def __init__( self, obj ):
-		print self
-		print( "C4DNode c'tor" )
-		super( C4DNode, self ).__init__()	
+		#print( "C4DNode c'tor" )
+		BaseNode.__init__( self )	
 		self.obj = obj
 		self.name = self.obj.GetName()
-		# types
-		self.cached = False
-		self.hasMesh = False 
-		self.hasCamera = False 
-		self.hasLight = False
-		self.isNull = False 
+		# extract transformation
+		self.extractTranform()
+		# cache attributes
+		self.determineCacheAttributes()
+		# cache attributes
+		self.determineAnimation()
+		# append children
+		childBegIt = self.obj.GetDown()
+		while childBegIt:
+			self.childNodes.append( C4DNode( childBegIt ) )
+			childBegIt = childBegIt.GetNext()
+			pass
+		pass
+
+	def extractTranform( self ):
 		# cache the relative matrix
 		self.matrix = convertC4DMatrix( self.obj.GetMl() )
 		trans = self.obj.GetRelPos()
@@ -490,35 +410,33 @@ class C4DNode( BaseNode ):
 		# NOTE: HPB rotation euler need to convert
 		rot = self.obj.GetRelRot()
 		self.rotation = [ rot.x, rot.y, rot.z ]
-		# cache attributes
-		self.determineCacheAttributes()
-		# cache attributes
-		self.determineAnimation()
 		pass
 
 	def determineAnimation( self ):
+		track = self.obj.GetFirstCTrack() #Get it's first animation track 
+		if not track: 
+			return # if it doesn't have any tracks. End the script
+		curve = track.GetCurve() #Get the curve for the track found
+		count = curve.GetKeyCount() #Count how many keys are on it
+		print count, str(curve)
 		pass
 
 	def determineCacheAttributes( self ):
 		objType = self.obj.GetType()
+		doc = c4d.documents.GetActiveDocument()
 		if _c4d.OBJECT_BASE_MESH == objType:
 			self.cacheAsMeshNode( self.obj )
 		else:
 			if objType in meshObjects:
-				try:
-					tmpObj = self.obj.GetClone()
-					tmpList = c4d.utils.SendModelingCommand( command = c4d.MCOMMAND_CURRENTSTATETOOBJECT, list = [tmpObj], 
-															 mode = c4d.MODELINGCOMMANDMODE_ALL, doc = doc )
-					c4d.utils.SendModelingCommand( command = c4d.MCOMMAND_TRIANGULATE, list = tmpList, doc = doc )
+				tmpObj = self.obj.GetClone()
+				tmpList = c4d.utils.SendModelingCommand( command = c4d.MCOMMAND_CURRENTSTATETOOBJECT, list = [tmpObj], 
+														 mode = c4d.MODELINGCOMMANDMODE_ALL, doc = doc )
+				c4d.utils.SendModelingCommand( command = c4d.MCOMMAND_TRIANGULATE, list = tmpList, doc = doc )
 
-					if len( tmpList ) > 0:
-						self.cacheAsMeshNode( tmpList[0] )
-					else:
-						print("problem converting mesh node: " + getName())
-						pass
-				except Exception, e:
-					print( "Failed to convert %s (type=%d) to triangles: %s" % ( self.obj.GetName(), self.obj.GetType(), e ) )
-					obj = None
+				if len( tmpList ) > 0:
+					self.cacheAsMeshNode( tmpList[0] )
+				else:
+					print("problem converting mesh node: " + getName())
 					pass
 			else:
 				if objType == _c4d.OBJECT_CAMERA:
@@ -532,51 +450,36 @@ class C4DNode( BaseNode ):
 					obj = None
 				pass
 			pass
+		if not self.cached:
+			print( "Unsupported object %s (type=%d)" % ( obj.GetName(), obj.GetType() ) )
+			pass
 		pass
 
 	# we take an object here because we may have cloned and modeled the obj
 	def cacheAsMeshNode( self, obj ):
 		# this would be where we'd determine how many meshes we'd want
 		self.hasMesh = True	
+		self.cached = True 
 		self.meshes.append( C4DMesh( obj ) )
 		pass
 
-	def cacheAsCameraNode():
+	def cacheAsCameraNode( self ):
 		self.hasCamera = True
+		self.cached = True
 		self.camera = C4DCamera( self.obj )
 		pass
 
-	def cacheAsLightNode():
+	def cacheAsLightNode( self ):
 		self.hasLight = True
+		self.cached = True
 		self.light = C4DLight( self.obj )
 		pass
 
-	def cacheAsNullNode():
+	def cacheAsNullNode( self ):
 		self.isNull = True
+		self.cached = True
 		# cache the few attributes, possibly this isn't needed
 		pass
 
-	def gltf( writer ):
-		# NOTE: if this doesn't have a parent name it should be added to the scene
-		
-		pass
-
-	## getName
-	def getName( self ): return self.name
-	## TODO: this isn't safe for uniqueness
-	def getKey( self ): return self.name.replace( " ", "_" )
-
-	def getParentName( self ):
-		parent = self.obj.GetUp()
-		if parent != None:
-			return parent.GetName()
-		return ""
-		pass
-
-	def getTransform( self ): return self.matrix
-	def getTranslate( self ): return self.translation
-	def getRotation( self ): return self.rotation
-	def getScale( self ): return self.scale
-
 	## class BaseLight
-	pass	
+	pass
