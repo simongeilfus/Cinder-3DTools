@@ -28,7 +28,7 @@ class BaseMaterial( object ):
 		else: raise NotImplementedError()
 		pass
 	## getKey - returns what should be a unique name for this material
-	def getKey( self ): return "material-" + self.getName() 
+	def getKey( self ): return "material-" + self.getName().replace(':', '_').replace('.', '_').replace(' ', '_')
 	## gltf writer function
 	def gltf( self, writer ):
 		values = {}
@@ -88,7 +88,7 @@ class BaseMesh( object ):
 		if self.name != "": return self.name + " Shape"
 		else: raise NotImplementedError() 
 	## getKey
-	def getKey( self ): return self.getName().replace( " ", "_" ) + "-lib"
+	def getKey( self ): return self.getName().replace(':', '_').replace('.', '_').replace(' ', '_') + "-lib"
 	## getTriMeshes
 	def getTriMeshes( self ):
 		raise NotImplementedError()
@@ -168,7 +168,7 @@ class BaseLight( object ):
 		if self.name != "": return self.name
 		else: raise NotImplementedError()
 	## getKey
-	def getKey( self ): return "light_" + self.getName()
+	def getKey( self ): return "light_" + self.getName().replace(':', '_').replace('.', '_').replace(' ', '_')
 	## gltf
 	def gltf( self, writer ):
 		pass
@@ -224,7 +224,7 @@ class BaseNode( object ):
 			pass
 		pass
 	## getKey - returns unique key for this node
-	def getKey( self ): return self.getName().replace( " ", "_" )
+	def getKey( self ): return self.getName().replace(':', '_').replace('.', '_').replace(' ', '_')
 	## getName - returns name of node
 	def getName( self ): 
 		if self.name != "": return self.name
@@ -331,7 +331,7 @@ class BaseExporter( object ):
 			self.sceneFileName = "untitled"
 			pass
 		# build the scene name
-		self.sceneFileName = self.sceneFileName.replace( " ", "_" )
+		self.sceneFileName = self.sceneFileName.replace(':', '_').replace('.', '_').replace(' ', '_')
 		# split it
 		[sceneFile, sceneExt] = os.path.splitext( os.path.basename( self.sceneFileName ) )
 		self.sceneName = sceneFile

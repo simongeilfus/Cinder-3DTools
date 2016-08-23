@@ -379,11 +379,57 @@ class C4DCamera( BaseCamera ):
 #
 #
 class C4DLight( BaseLight ):
+	LIGHT_TYPES = [
+		{ LIGHT_TYPE_OMNI, BaseLight.POINT },
+		{ LIGHT_TYPE_SPOT, BaseLight.SPOT }, 
+		{ LIGHT_TYPE_DISTANT, BaseLight.DIRECTIONAL }
+	]
 	## c'tor
 	def __init__( self, obj ):
 		#print( "BaseLight c'tor" )
 		BaseLight.__init__(self)	
 		self.name = obj.GetName()	
+		lightType = obj[c4d.LIGHT_TYPE]
+
+		if lightType in C4DLight.LIGHT_TYPES.keys():
+			self.lightType = C4DLight.LIGHT_TYPES[lightType]
+		else:
+			print "Unsupported light type."
+
+		self.color = convertColor(obj[c4d.LIGHT_COLOR])
+		self.brightness = obj[c4d.LIGHT_BRIGHTNESS]
+		self.falloff = obj[c4d.LIGHT_DETAILS_FALLOFF]
+		
+		print "Light info: ", self.lightType, self.brightness, self.color, self.falloff
+
+		# channelMatch = {'c4d.ID_BASEOBJECT_REL_POSITION,c4d.VECTOR_X':'transform.tx', 
+		#  				'c4d.ID_BASEOBJECT_REL_POSITION,c4d.VECTOR_Y':'transform.ty', 
+		#  				'c4d.ID_BASEOBJECT_REL_POSITION,c4d.VECTOR_Z':'transform.tz', 
+		#  				'c4d.ID_BASEOBJECT_REL_SCALE,c4d.VECTOR_X':'transform.sx', 
+		#  				'c4d.ID_BASEOBJECT_REL_SCALE,c4d.VECTOR_Y':'transform.sy', 
+		#  				'c4d.ID_BASEOBJECT_REL_SCALE,c4d.VECTOR_Z':'transform.sz', 
+		#  				'c4d.ID_BASEOBJECT_REL_ROTATION,c4d.VECTOR_X':'transform.rx', 
+		#  				'c4d.ID_BASEOBJECT_REL_ROTATION,c4d.VECTOR_Y':'transform.ry', 
+		#  				'c4d.ID_BASEOBJECT_REL_ROTATION,c4d.VECTOR_Z':'transform.rz', 
+		#  				'c4d.ID_BASEOBJECT_ROTATION_ORDER':'transform.rotateOrder', 
+		#  				'c4d.LIGHT_BRIGHTNESS':'transform.intensity', 
+		#  				'c4d.LIGHT_COLOR,c4d.VECTOR_X':'transform.cr', 
+		#  				'c4d.LIGHT_COLOR,c4d.VECTOR_Y':'transform.cg', 
+		#  				'c4d.LIGHT_COLOR,c4d.VECTOR_Z':'transform.cb', 
+		#  				'c4d.LIGHT_DETAILS_OUTERANGLE':'transform.coneAngle', 
+		#  				'c4d.LIGHT_DETAILS_INNERANGLE':'transform.penumbraAngle', 
+		#  				'c4d.LIGHT_DETAILS_FALLOFF':'transform.dropoff'}
+        
+  #       for light in self.lights:            
+  #           #Export Lights
+            
+  #           if light[c4d.LIGHT_TYPE] in [0,1,3]:
+  #               objectFileName = light.GetName().replace(':', '_').replace('.', '_')
+  #               self.exportData(light, channelMatch, self.startFrame, self.endFrame, self.exportPath + objectFileName + '.fm2n')
+  #               print "Exported: " + objectFileName
+  #           else:
+  #               c4d.gui.MessageDialog(light.GetName() + " is not supported in Nuke. You can just use Point-(Omni), Distance-(Infinite) and Spot-Lights!")
+    
 		pass
 	## class BaseLight
 	pass	
@@ -422,12 +468,14 @@ class C4DNode( BaseNode ):
 		pass
 
 	def determineAnimation( self ):
-		track = self.obj.GetFirstCTrack() #Get it's first animation track 
-		if not track: 
+		tracks = self.obj.GetCTracks() #Get it's first animation track 
+		if len(tracks) == 0: 
 			return # if it doesn't have any tracks. End the script
-		curve = track.GetCurve() #Get the curve for the track found
-		count = curve.GetKeyCount() #Count how many keys are on it
-		print count, str(curve)
+		animationChannels = [ track.GetName() for track in tracks]
+
+		# curve = track.GetCurve() #Get the curve for the track found
+		# count = curve.GetKeyCount() #Count how many keys are on it
+		# print count, str(curve)
 		pass
 
 	def determineCacheAttributes( self ):
@@ -492,3 +540,111 @@ class C4DNode( BaseNode ):
 
 	## class BaseLight
 	pass	
+
+# def exportData(self, object, channels, startF, endF, exportFile):
+# #        objectPath = object.path()
+#         objectName = object.GetName().replace(':', '_').replace('.', '_')
+#         objectType = c4d.GetObjectName(object.GetType())
+    
+#         channalsAnimated = []
+#         channalsNotAnimated = []
+        
+#         objectNameWrite = objectName
+#         #Get the right Object-Type to write out
+#         if objectType == 'Camera':
+#             objectNodeTypeWrite = 'camera'
+#         elif objectType == 'Null':
+#             objectNodeTypeWrite = 'locator'
+#         elif objectType == 'Light':
+#             if object[c4d.LIGHT_TYPE] == 0:
+#                 #Omni-Light
+#                 objectNodeTypeWrite = 'point' 
+#             elif object[c4d.LIGHT_TYPE] == 1:
+#                 #Spot-Light
+#                 objectNodeTypeWrite = 'spot'
+#             elif object[c4d.LIGHT_TYPE] == 3:
+#                 #Infinite-Light
+#                 objectNodeTypeWrite = 'directional'
+
+        
+        #Get all the animated channels of that object
+        # allAnimatedChannels = object.GetCTracks()
+        
+#         #Create an array with all the names of the animated channels
+        # allAnimatedChannelNames = []
+#         for aniChannel in allAnimatedChannels:
+#             allAnimatedChannelNames.append(aniChannel.GetName())
+
+
+#         self.aniChannelMatch = {'transform.tx':'Position . X', 
+#         						'transform.ty':'Position . Y', 
+#         						'transform.tz':'Position . Z', 
+#         						'transform.sx':'Scale . X', 
+#         						'transform.sy':'Scale . Y', 
+#         						'transform.sz':'Scale . Z', 
+#         						'transform.cr':'Color . R', 
+#         						'transform.cg':'Color . G', 
+#         						'transform.cb':'Color . B', 
+#         						'transform.intensity':'Intensity'}
+
+#         if object[c4d.ID_BASEOBJECT_ROTATION_ORDER] == 6: #When HPB
+#             self.aniChannelMatch.update({'transform.rx':'Rotation . P', 'transform.ry':'Rotation . H', 'transform.rz':'Rotation . B'})
+#         else:
+#             self.aniChannelMatch.update({'transform.rx':'Rotation . X', 'transform.ry':'Rotation . Y', 'transform.rz':'Rotation . Z'})
+
+  
+#         #Invert the aniChannelMatch to have acces to the channelNames
+#         channelMatch_inverted = dict( ((self.aniChannelMatch[k], k) for k in (self.aniChannelMatch) ) )
+       
+#         #Now split all the channels which should get exported in an animated and not animated group
+#         for channel in channels:
+#             channelAnimated = False
+
+#             #Check if Channel is in MatchingDictionary (only animatable are in there), so if not there it will not be animated
+#             if channels[channel] in self.aniChannelMatch:
+#                 #If it is in dictionary and also in the dictionary with the animated channels then it is animated
+#                 if self.aniChannelMatch[channels[channel]] in allAnimatedChannelNames:
+#                     channelAnimated = True
+                
+#             #Now depending on the set value it adds it to the matching group
+#             if channelAnimated:
+#                 channalsAnimated.append(channel)
+#             else:    
+#                 channalsNotAnimated.append(channel)
+
+        
+#         #Output Values
+#         writeOut = objectNameWrite + '\t'  + objectNodeTypeWrite + '\t\n'
+            
+#         #Write out not animated Channels  
+#         for channel in channalsNotAnimated:
+#             thisValue = self.getObjectParameterValue(object, channel, channels)
+
+#             writeOut += "%s\t%s\n" % (channels[channel], thisValue)
+                
+#         writeOut += '+++++Animated+++++\n'
+#         #Write out animated Channels
+    
+#         if len(channalsAnimated) > 0:
+#             #List all animated Channels
+#             writeOut += 'Frame'
+#             for channel in channalsAnimated:
+#                 #channelValues = channel.split(':')
+#                 writeOut += "\t%s" % channels[channel]
+#             writeOut += '\n'
+                
+#             #Go through all Frames    
+#             for frame in range(startF, (endF+1)):
+#                 #Write out Frame-Number
+#                 writeOut += str(frame)
+                
+#                 #Set Frame - Maybe later differently
+#                 self.setCurrentFrame(frame, self.doc)
+
+#                 for channel in channalsAnimated:
+#                     writeOut += "\t%s" % self.getObjectParameterValue(object, channel, channels)
+#                 writeOut += '\n'
+        
+#         f = open(exportFile, 'w')
+#         f.write(writeOut)
+#         f.close()  
