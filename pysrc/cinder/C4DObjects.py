@@ -1,10 +1,19 @@
+
+import Base
+reload( Base )
 from Base import BaseMaterial
 from Base import BaseMesh
 from Base import BaseLight
 from Base import BaseCamera
 from Base import BaseNode
 
+import GltfWriter
+reload( GltfWriter )
 from GltfWriter import GltfWriter
+
+import TriMesh
+reload( TriMesh )
+from TriMesh import TriMesh
 
 import c4d
 import array
@@ -482,4 +491,4 @@ class C4DNode( BaseNode ):
 		pass
 
 	## class BaseLight
-	pass
+	pass	

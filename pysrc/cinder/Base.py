@@ -1,6 +1,13 @@
 
+import TriMeshWriter
+reload( TriMeshWriter )
 from TriMeshWriter import TriMeshWriter
+
+import GltfWriter
+reload( GltfWriter )
 from GltfWriter import GltfWriter
+
+import os
 
 ## \class BaseMaterial
 #
@@ -316,7 +323,8 @@ class BaseExporter( object ):
 
 		self.outputPath = path
 
-		self.cacheNodes()
+		if not self.cacheNodes():
+			return
 
 		if self.sceneFileName is None:
 			print "No scene file name. Using untitled."
@@ -337,4 +345,4 @@ class BaseExporter( object ):
 		self.exportGltf()
 		pass		
 	# class BaseExporter 
-	pass	
+	pass
