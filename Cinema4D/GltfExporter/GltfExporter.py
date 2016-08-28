@@ -1,14 +1,12 @@
 
 """
-import py_compile
-py_compile.compile( "/Users/ryanbartley/Documents/clean_cinder/blocks/Cinder-3DTools/Cinema4D/GltfExporter/GltfExporter.py" )
-
 import sys
-sys.path.append( "/Users/ryanbartley/Documents/clean_cinder/blocks/Cinder-3DTools/Cinema4D/GltfExporter" )
-import GltfExporter
-reload( GltfExporter )
+sys.path.append( "/Users/ryanbartley/Documents/clean_cinder/blocks/Cinder-3DTools/pysrc/cinder" )
+import C4D
+reload( C4D )
  
-GltfExporter.exportSelected( "/Users/ryanbartley/Documents/clean_cinder/blocks/Cinder-3DTools/TriMeshViewer/assets" )"""
+C4D.exportSelected( "/Users/ryanbartley/Documents/clean_cinder/blocks/Cinder-3DTools/TriMeshViewer/assets" )
+"""
 
 """
 import c4d
@@ -53,6 +51,27 @@ import re
 import struct
 import json
 import shutil
+
+class _c4d( object ):
+	OBJECT_BASE_MESH	= 5100
+	OBJECT_CONE     	= 5162
+	OBJECT_CUBE     	= 5159
+	OBJECT_CYLINDER 	= 5170
+	OBJECT_DISC     	= 5164
+	OBJECT_PLANE    	= 5168
+	OBJECT_POLYGON  	= 5174
+	OBJECT_SPHERE   	= 5160
+	OBJECT_TORUS    	= 5163
+	OBJECT_CAPSULE  	= 5171
+	OBJECT_OIL_TANK 	= 5172
+	OBJECT_TUBE     	= 5165
+	OBJECT_PYRAMID  	= 5167
+	OBJECT_PLATONIC 	= 5161
+	OBJECT_CAMERA 		= 5103
+	OBJECT_LIGHT		= 5102
+	OBJECT_NULL			= 5140
+	pass
+
 
 ## TriMesh
 #
@@ -387,7 +406,8 @@ class GltfAsset( object ):
 	def appendCamera( self, cameraName, cameraInfo ):
 		tempCameraObject = {}
 		projectionType = cameraInfo[c4d.CAMERA_PROJECTION]
-
+		dimension = cameraInfo.GetFrame()
+		print dimension
 		if projectionType == c4d.Pperspective:
 			tempPerspective = {}
 			tempPerspective["aspectRatio"] = 1.5
@@ -1088,7 +1108,7 @@ class GltfExporter( object ):
 		for itObj in selected:
 			obj = itObj
 			objType = obj.GetType()
-			if _c4d.OBJECT_EMPTY_POLYGON == objType:
+			if _c4d.OBJECT_NULL == objType:
 				polyObjs.append( obj )
 			else:
 				if objType in validObjectTypes:
