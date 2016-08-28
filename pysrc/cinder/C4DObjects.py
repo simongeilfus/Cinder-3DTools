@@ -6,6 +6,8 @@ from Base import BaseMesh
 from Base import BaseLight
 from Base import BaseCamera
 from Base import BaseNode
+from Base import BaseTransformAnimation
+from Base import BaseVectorAnimation
 
 import GltfWriter
 reload( GltfWriter )
@@ -380,9 +382,9 @@ class C4DCamera( BaseCamera ):
 #
 class C4DLight( BaseLight ):
 	LIGHT_TYPES = [
-		{ LIGHT_TYPE_OMNI, BaseLight.POINT },
-		{ LIGHT_TYPE_SPOT, BaseLight.SPOT }, 
-		{ LIGHT_TYPE_DISTANT, BaseLight.DIRECTIONAL }
+		{ c4d.LIGHT_TYPE_OMNI, BaseLight.POINT },
+		{ c4d.LIGHT_TYPE_SPOT, BaseLight.SPOT }, 
+		{ c4d.LIGHT_TYPE_DISTANT, BaseLight.DIRECTIONAL }
 	]
 	## c'tor
 	def __init__( self, obj ):
@@ -445,8 +447,19 @@ class C4DNode( BaseNode ):
 		self.extractTranform()
 		# cache attributes
 		self.determineCacheAttributes()
-		# cache attributes
+		# figure out animation details
 		self.determineAnimation()
+		self.cacheHeirarchy()
+		# if len(self.obj.GetCTracks()) > 0:
+		# 	if self.needsAnimationHeirarchy():
+		# 		self.cacheAsAnimationHeirarchy()
+		# 		return
+		# 	else:
+		# 		self.cacheAnimation()
+		# 	pass
+		pass
+	
+	def cacheHeirarchy( self ):
 		# append children
 		childBegIt = self.obj.GetDown()
 		while childBegIt:
@@ -454,28 +467,43 @@ class C4DNode( BaseNode ):
 			childBegIt = childBegIt.GetNext()
 			pass
 		pass
+		pass
 
 	def extractTranform( self ):
 		# cache the relative matrix
 		self.matrix = convertC4DMatrix( self.obj.GetMl() )
 		trans = self.obj.GetRelPos()
-		self.translation = [ trans.x, trans.y, trans.z ]
+		self.translation = [ trans.x * _c4d.UNIT_SCALE, 
+							 trans.y * _c4d.UNIT_SCALE, 
+							 trans.z * _c4d.UNIT_SCALE  ]
+		print "trans: "
+		for trans in self.translation:
+			print str(trans) + ", "
+		print "\n"
 		scale = self.obj.GetRelScale()
 		self.scale = [ scale.x, scale.y, scale.z ]
 		# NOTE: HPB rotation euler need to convert
 		rot = self.obj.GetRelRot()
-		self.rotation = [ rot.x, rot.y, rot.z ]
+		quat = c4d.Quaternion()
+		quat.SetHPB(rot)
+		self.rotation = [quat.v.x, quat.v.y, quat.v.z, quat.w]
+		pass
+
+	def needsAnimationHeirarchy( self ):
+		tracks = self.obj.GetCTracks() #Get it's first animation track
+		for track in tracks:
+			if track.GetName() in C4DAnimation.ROTATION_PARAMS:
+				return True 
+		return False 
 		pass
 
 	def determineAnimation( self ):
 		tracks = self.obj.GetCTracks() #Get it's first animation track 
 		if len(tracks) == 0: 
 			return # if it doesn't have any tracks. End the script
-		animationChannels = [ track.GetName() for track in tracks]
-
-		# curve = track.GetCurve() #Get the curve for the track found
-		# count = curve.GetKeyCount() #Count how many keys are on it
-		# print count, str(curve)
+		print "animtion for node: " + self.getName()
+		self.animation = C4DTransformAnimation( self.getKey(), tracks, self.getTranslation(), 
+									   self.getRotation(), self.getScale() )
 		pass
 
 	def determineCacheAttributes( self ):
@@ -539,7 +567,64 @@ class C4DNode( BaseNode ):
 		pass
 
 	## class BaseLight
-	pass	
+	pass
+
+class C4DVectorAnimation( BaseVectorAnimation ):
+
+	def __init__( self, vectorType, transform, components ):
+		BaseVectorAnimation.__init__( self, vectorType, transform, components )
+		pass
+
+	def makeQuatKeyframes( self ):
+		retKeyFrames = []
+		print "----------------------------------------------"
+		for keyframe in self.keyframes:
+			vec = c4d.Vector(keyframe[1][0], keyframe[1][1], keyframe[1][2])
+			quat = c4d.Quaternion()
+			quat.SetHPB(vec)
+			string = "quat: "
+			for comp in [quat.v.x, quat.v.y, quat.v.z, quat.w]:
+				string += str(comp) + ", "
+			print string + "\n"
+			retKeyFrames.append([quat.v.x, quat.v.y, quat.v.z, quat.w])
+			pass
+		return retKeyFrames
+		pass
+
+class C4DTransformAnimation( BaseTransformAnimation ):
+	TRANFORM_PARAMS = { "translation" : { 'Position . X' : 'x', 'Position . Y' : 'y', 'Position . Z' : 'z' },
+					    "rotation" : { 'Rotation . H' : 'h', 'Rotation . P' : 'p', 'Rotation . B' : 'b' },
+					 	"scale" : { 'Scale . X' : 'x', 'Scale . Y' : 'y', 'Scale . Z' : 'z' } }
+	
+	def __init__(self, nodeKey, tracks, translation, rotation, scale):
+		BaseTransformAnimation.__init__( self, nodeKey )
+		self.transform["translation"] = C4DVectorAnimation("translation", translation, ['x','y','z'] ) 
+		self.transform["rotation"] = C4DVectorAnimation("rotation", rotation, ['h','p','b'] )
+		self.transform["scale"] = C4DVectorAnimation("scale", scale, ['x','y','z'])
+
+		for track in tracks:
+			name = track.GetName()
+			cached = False
+			for paramKey in C4DTransformAnimation.TRANFORM_PARAMS.keys():
+				if name in C4DTransformAnimation.TRANFORM_PARAMS[paramKey].keys():
+					comp = C4DTransformAnimation.TRANFORM_PARAMS[paramKey][name]
+					cur = track.GetCurve()
+					cached = True
+					for x in range(cur.GetKeyCount()):
+						key = cur.GetKey(x)
+						timePoint = key.GetTime().Get()
+						value = key.GetValue()
+						# TODO: need to figure out interpolation
+						interpolation = key.GetInterpolation()
+						if paramKey == "translation":
+							value = value * _c4d.UNIT_SCALE
+							pass
+						self.transform[paramKey].addKeyFrame(comp, timePoint, value)
+			if cached == False:
+				print "Did not cache animation track - " + name
+				pass
+		pass
+		
 
 # def exportData(self, object, channels, startF, endF, exportFile):
 # #        objectPath = object.path()
@@ -577,15 +662,15 @@ class C4DNode( BaseNode ):
 
 
 #         self.aniChannelMatch = {'transform.tx':'Position . X', 
-#         						'transform.ty':'Position . Y', 
-#         						'transform.tz':'Position . Z', 
-#         						'transform.sx':'Scale . X', 
-#         						'transform.sy':'Scale . Y', 
-#         						'transform.sz':'Scale . Z', 
-#         						'transform.cr':'Color . R', 
-#         						'transform.cg':'Color . G', 
-#         						'transform.cb':'Color . B', 
-#         						'transform.intensity':'Intensity'}
+#         						  'transform.ty':'Position . Y', 
+#         						  'transform.tz':'Position . Z', 
+#         						  'transform.sx':'Scale . X', 
+#         						  'transform.sy':'Scale . Y', 
+#         						  'transform.sz':'Scale . Z', 
+#         						  'transform.cr':'Color . R', 
+#         						  'transform.cg':'Color . G', 
+#         						  'transform.cb':'Color . B', 
+#         						  'transform.intensity':'Intensity'}
 
 #         if object[c4d.ID_BASEOBJECT_ROTATION_ORDER] == 6: #When HPB
 #             self.aniChannelMatch.update({'transform.rx':'Rotation . P', 'transform.ry':'Rotation . H', 'transform.rz':'Rotation . B'})

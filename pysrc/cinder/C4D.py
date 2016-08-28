@@ -1,10 +1,12 @@
 """
 import sys
-sys.path.append( "/Users/ryanbartley/Documents/clean_cinder/blocks/Cinder-3DTools/pysrc" )
+sys.path.append( "/Users/ryanbartley/Documents/clean_cinder/blocks/Cinder-3DTools/pysrc/cinder" )
 import C4D
 reload( C4D )
+from C4D import C4DExporter
  
-C4D.exportSelected( "/Users/ryanbartley/Documents/clean_cinder/blocks/Cinder-3DTools/TriMeshViewer/assets" )
+exporter = C4DExporter()
+exporter.export( "/Users/ryanbartley/Documents/clean_cinder/blocks/Cinder-3DTools/TriMeshViewer/assets" )
 """
 
 import c4d

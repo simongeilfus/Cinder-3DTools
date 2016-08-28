@@ -90,6 +90,7 @@ class GltfWriter( object ):
 
 		# UID numbers for specific objects
 		self.accessorNum = 0
+		self.animationNum = 0
 		self.bufferViewNum = 0
 		self.bufferNum = 0
 		self.techniqueNum = 0
@@ -231,28 +232,12 @@ class GltfWriter( object ):
 		tempBufferView["buffer"] = bufferName
 		tempBufferView["byteOffset"] = byteOffset
 		tempBufferView["byteLength"] = byteLength
-		tempBufferView["target"] = target
+		if target != None:
+			tempBufferView["target"] = target
+			pass
 		self.bufferViewNum += 1
 		name = "bufferview_" + str(self.bufferViewNum)
 		self.bufferViews[name] = tempBufferView  
-		return name
-		pass
-
-	def appendAccessor( self, bufferViewName, byteOffset, byteStride, componentType, count, dataType, minBounding, maxBounding ):
-		tempAccessor = {}
-		tempAccessor["bufferView"] = bufferViewName
-		tempAccessor["byteOffset"] = byteOffset
-		tempAccessor["byteStride"] = byteStride
-		tempAccessor["componentType"] = componentType
-		tempAccessor["count"] = count
-		tempAccessor["type"] = dataType
-		# if (minBounding is not None && len(minBounding) > 0):
-		# 	tempAccessor["min"] = minBounding
-		# if (maxBounding is not None && len(maxBounding) > 0):
-		# 	tempAccessor["max"] = maxBounding
-		self.accessorNum += 1
-		name = "accessor_" + str(self.accessorNum)
-		self.accessors[name] = tempAccessor
 		return name
 		pass
 
@@ -295,20 +280,6 @@ class GltfWriter( object ):
 		self.textures[textureKey] = tempTexture
 		return textureKey
 		pass
-
-	def appendAttrib( self, attribArray, dims, bufferViewName, attribOffset, attribMap, attribKey ):
-		if len(attribArray) == 0:
-			return 0
-		# buffer positions
-		offset = len(self.buffer)
-		self.buffer.extend(struct.pack('%sf' % len(attribArray), *attribArray))
-		attribType = self.getAttribType( dims )
-		# create accessor
-		accessorName = self.appendAccessor( bufferViewName, attribOffset, dims * 4, self.FLOAT, len(attribArray) / dims, attribType, None, None ) 
-		length = len(self.buffer) - offset
-		# store accessorName
-		attribMap[attribKey] = accessorName
-		return length
 
 	def createPrimitive( self, trimesh, materialKey ):
 		# make temp primitive
@@ -368,34 +339,38 @@ class GltfWriter( object ):
 		return meshKey
 		pass
 
-	def appendMeshNode( self, nodeKey, nodeName, matrix, meshKeys ):
+	def appendMeshNode( self, nodeKey, nodeName, trans, meshKeys ):
 		tempNode = {}
 		tempNode["name"] = nodeName
-		tempNode["matrix"] = matrix
+		for key in trans.keys():
+			tempNode[key] = trans[key]
 		tempNode["meshes"] = meshKeys
 		self.nodes[nodeKey] = tempNode
 		pass
 
-	def appendCameraNode( self, nodeKey, nodeName, matrix, cameraKey ):
+	def appendCameraNode( self, nodeKey, nodeName, trans, cameraKey ):
 		tempNode = {}
 		tempNode["name"] = nodeName
-		tempNode["matrix"] = matrix
+		for key in trans.keys():
+			tempNode[key] = trans[key]
 		tempNode["camera"] = cameraKey
 		self.nodes[nodeKey] = tempNode
 		pass
 
-	def appendLightNode( self, nodeKey, nodeName, matrix, lightKey ):
+	def appendLightNode( self, nodeKey, nodeName, trans, lightKey ):
 		tempNode = {}
 		tempNode["name"] = nodeName
-		tempNode["matrix"] = matrix
+		for key in trans.keys():
+			tempNode[key] = trans[key]
 		tempNode["light"] = lightKey
 		self.nodes[nodeKey] = tempNode
 		pass
 
-	def appendNode( self, nodeKey, nodeName, matrix ):
+	def appendNode( self, nodeKey, nodeName, trans ):
 		tempNode = {}
 		tempNode["name"] = nodeName
-		tempNode["matrix"] = matrix
+		for key in trans.keys():
+			tempNode[key] = trans[key]
 		self.nodes[nodeKey] = tempNode
 		pass
 
@@ -409,3 +384,107 @@ class GltfWriter( object ):
 	def appendMaterial( self, materialKey, materialInfo ):
 		self.materials[materialKey] = materialInfo
 		pass
+
+	def appendAttrib( self, attribArray, dims, bufferViewName, attribOffset, attribMap, attribKey ):
+		if len(attribArray) == 0:
+			return 0
+		# buffer positions
+		offset = len(self.buffer)
+		self.buffer.extend(struct.pack('%sf' % len(attribArray), *attribArray))
+		attribType = self.getAttribType( dims )
+		# create accessor
+		accessorName = self.appendAccessor( bufferViewName, attribOffset, dims * 4, self.FLOAT, len(attribArray) / dims, attribType, None, None ) 
+		length = len(self.buffer) - offset
+		# store accessorName
+		attribMap[attribKey] = accessorName
+		return length
+
+	def appendAccessor( self, bufferViewName, byteOffset, byteStride, componentType, count, dataType, minBounding, maxBounding ):
+		tempAccessor = {}
+		tempAccessor["bufferView"] = bufferViewName
+		tempAccessor["byteOffset"] = byteOffset
+		tempAccessor["byteStride"] = byteStride
+		tempAccessor["componentType"] = componentType
+		tempAccessor["count"] = count
+		tempAccessor["type"] = dataType
+		# if (minBounding is not None && len(minBounding) > 0):
+		# 	tempAccessor["min"] = minBounding
+		# if (maxBounding is not None && len(maxBounding) > 0):
+		# 	tempAccessor["max"] = maxBounding
+		self.accessorNum += 1
+		name = "accessor_" + str(self.accessorNum)
+		self.accessors[name] = tempAccessor
+		return name
+		pass
+
+	def appendAnimation( self, nodeKey, timeSharedParameters ):
+		for sharedParams in timeSharedParameters:
+			animationKey = "animation_" + str(self.animationNum)
+			parameters = {}
+			channels = []
+			samplers = {}
+			# create bufferview
+			offset = len(self.buffer)
+			print "offset: " + str(offset)
+			bufferViewName = self.appendBufferView( self.bufferName, offset, 0, None )
+			# create the time array
+			timeArray = array.array('f')
+			# gather the times in the array
+			timeArray.extend([ time for time in sharedParams["time"] ])
+			# append to the buffer
+			self.buffer.extend(struct.pack('%sf' % len(timeArray), *timeArray))
+			# add accessor
+			timeAccessorName = self.appendAccessor( bufferViewName, 0, 0, self.FLOAT, len(timeArray), self.SCALAR, None, None )
+			# append it's name
+			parameters["TIME"] = timeAccessorName
+			# rolling attrib offset into the buffer
+			attribOffset = len(self.buffer) - offset
+			# setup time accessor
+			for param in sharedParams["parameters"]:
+				# create the time array
+				paramArray = array.array('f')
+				# gather the times in the array
+				paramList = [ component for keys in param["keys"] for component in keys ]
+				for _param in paramList:
+					print _param
+				paramArray.extend(paramList)
+				# get the paramName
+				paramName = param["parameter"]
+				attribOffset += self.appendAttrib( paramArray, param["dims"], bufferViewName, attribOffset, parameters, paramName )
+				# create the sampler
+				sampler = {}
+				sampler["input"] = "TIME"
+				sampler["interpolation"] = "LINEAR"
+				sampler["output"] = paramName
+				# create smapler key
+				samplerKey = animationKey + "_" + paramName + "_sampler"
+				# add to the samplers
+				samplers[samplerKey] = sampler
+				# create the target
+				target = {}
+				target["id"] = nodeKey
+				target["path"] = paramName
+				# create the channel
+				channel = {}
+				channel["sampler"] = samplerKey
+				channel["target"] = target
+				channels.append(channel)
+				pass
+			pass
+			self.bufferViews[bufferViewName]["byteLength"] = len(self.buffer) - offset
+			animationObject = {}
+			animationObject["channels"] = channels
+			animationObject["parameters"] = parameters 
+			animationObject["samplers"] = samplers
+			self.animations[animationKey] = animationObject
+			self.animationNum = self.animationNum + 1
+		pass
+
+
+
+
+
+
+
+
+

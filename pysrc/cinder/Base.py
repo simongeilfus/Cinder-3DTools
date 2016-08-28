@@ -8,6 +8,7 @@ reload( GltfWriter )
 from GltfWriter import GltfWriter
 
 import os
+import array
 
 ## \class BaseMaterial
 #
@@ -158,6 +159,9 @@ class BaseCamera( object ):
 #
 #
 class BaseLight( object ):
+	POINT = 0
+	SPOT = 1
+	DIRECTIONAL = 2
 	## c'tor
 	def __init__( self ):
 		#print( "BaseLight c'tor" )		
@@ -181,6 +185,7 @@ class BaseNode( object ):
 		#print( "BaseNode c'tor" )	
 		self.name = ""
 		# needed variables for writer
+		self.animation = None
 		self.cached = False
 		self.hasMesh = False 
 		self.meshes = []
@@ -198,24 +203,35 @@ class BaseNode( object ):
 		pass
 	## gltf writer
 	def gltf( self, writer ):
+		trans = {}
+
+		if self.animation:
+			self.animation.gltf( writer )
+			trans["translation"] = self.getTranslation()
+			trans["rotation"] = self.getRotation()
+			trans["scale"] = self.getScale()
+		else:
+			trans["matrix"] = self.getTransform()
+			pass
+
 		if self.hasMesh:
 			meshKeys = []
 			for mesh in self.meshes:
 				mesh.gltf( writer )
 				meshKeys.append( mesh.getKey() )
 				pass
-			writer.appendMeshNode( self.getKey(), self.getName(), self.getTransform(), meshKeys )
+			writer.appendMeshNode( self.getKey(), self.getName(), trans, meshKeys )
 			pass
 		elif self.hasCamera:
 			self.camera.gltf( writer )
-			writer.appendCameraNode( self.getKey(), self.getName(), self.getTransform(), self.camera.getKey() )
+			writer.appendCameraNode( self.getKey(), self.getName(), trans, self.camera.getKey() )
 			pass
 		elif self.hasLight:
 			self.light.gltf( writer )
-			writer.appendLightNode( self.getKey(), self.getName(), self.getTransform(), self.light.getKey() )
+			writer.appendLightNode( self.getKey(), self.getName(), trans, self.light.getKey() )
 			pass
 		elif self.isNull:
-			writer.appendNode( self.getKey(), self.getName(), self.getTransform() )
+			writer.appendNode( self.getKey(), self.getName(), trans )
 
 		for child in self.childNodes:
 			key = child.getKey()
@@ -234,8 +250,8 @@ class BaseNode( object ):
 		if self.matrix != None: return self.matrix
 		else: raise NotImplementedError()
 	## getTranslate - returns parent relative vec3 translate
-	def getTranslate( self ): 
-		if self.translate != None: return self.translate
+	def getTranslation( self ): 
+		if self.translation != None: return self.translation
 		else: raise NotImplementedError()
 	## getRotation - returns parent relative quat rotation
 	def getRotation( self ): 
@@ -246,7 +262,164 @@ class BaseNode( object ):
 		if self.scale != None: return self.scale
 		else: raise NotImplementedError()
 	## class BaseNode
-	pass	
+	pass
+
+class BaseVectorAnimation(object):
+	"""docstring for C4DTranslation"""
+	def __init__(self, vectorType, transform, components):
+		self.vectorType = vectorType
+		self.transform = []
+		self.transform.extend(transform)
+		self.components = components
+		self.keyframes = []
+		self.finalized = False
+		pass
+
+	def addKeyFrame(self, component, time, value):
+		self.finalized = False
+		inserted = False
+		indexLess = -1
+		for idx, keyframe in enumerate(self.keyframes):
+			if time == keyframe[0]:
+				index = self.components.index(component)
+				keyframe[1][index] = value
+				inserted = True
+				break
+			elif time < keyframe[0]:
+				indexLess = idx
+				break
+			pass
+		if not inserted:
+			values = [ None, None, None ]
+			index = self.components.index(component)
+			values[index] = value
+			keyframe = [time, values]
+			if indexLess > -1:
+				self.keyframes.insert(indexLess, keyframe)
+			else:
+				self.keyframes.append(keyframe)
+			pass
+		pass
+
+	def getKeyframeComponents( self ):
+		if not self.finalized:
+			self.finalize()
+		if self.vectorType == "rotation":
+			return self.makeQuatKeyframes()
+		else:
+			return [ keyframe[1] for keyframe in self.keyframes ]
+		pass
+
+	def makeQuatKeyframes( self ):
+		raise NotImplementedError()
+		pass
+
+	def getKeyframeTimes( self ):
+		if not self.finalized:
+			self.finalize()
+		return [ keyframe[0] for keyframe in self.keyframes ]
+		pass
+
+	def getDims( self ):
+		if self.vectorType == "translation" or self.vectorType == "scale":
+			return 3
+		elif self.vectorType == "rotation":
+			return 4
+		pass
+
+	def finalize( self ):
+		rollingTransform = self.transform
+		for keyframe in self.keyframes:
+			for x in range(len(self.components)):
+				if keyframe[1][x] == None:
+					keyframe[1][x] = rollingTransform[x]
+				rollingTransform[x] = keyframe[1][x]
+				pass
+			pass
+		self.finalized = True 
+		pass
+
+	def isValid( self ): return len(self.keyframes) > 1
+	
+	def __str__( self ):
+		string = self.vectorType + ": " + str(self.transform) + "\n"
+		for keyframe in self.keyframes:
+			keyString = ""
+			for x in range(3):
+				keyString += self.components[x] + ": " + str(keyframe[1][x]) + ", "
+			string += str(keyframe[0]) + ": " + keyString + "\n\n"
+			pass
+		return string
+		pass
+
+## \class BaseAnimation
+#
+#
+class BaseTransformAnimation(object):
+	"""docstring for BaseAnimation"""
+	# transComp, rotComp, scaleComp are all the components that the Animation should look for
+	def __init__(self, nodeKey):
+		self.nodeKey = nodeKey
+		self.transform = {}
+		pass
+	
+	def gltf( self, writer ):
+		validTransforms = {}
+		# copy the keyframes and get the times
+		for key in self.transform.keys():
+			if self.transform[key].isValid():
+				self.transform[key].finalize()
+				validTransforms[key] = self.transform[key]
+			pass
+
+		timeSharedParameters = []
+		transformKeys = validTransforms.keys()
+		for outerKey in transformKeys:
+			# if this is already contained continue
+			contained = False
+			for sharedParameters in timeSharedParameters:
+				for param in sharedParameters["parameters"]:
+					if outerKey == param["parameter"]:
+						contained = True
+						pass
+					pass
+			if contained:
+				continue
+			# create the timeset object
+			timeSet = {}
+			# grab the times of the keyframes
+			outerTimeKeys = validTransforms[outerKey].getKeyframeTimes()
+			timeSet["time"] = outerTimeKeys
+			timeSet["parameters"] = []
+			# append this to the parameters
+			timeSet["parameters"].append({ "parameter" : outerKey, 
+				 						   "keys" : validTransforms[outerKey].getKeyframeComponents(), 
+				 						   "dims" : validTransforms[outerKey].getDims() })
+			# go through the rest of the transforms to see if theres matches
+			for compKey in transformKeys:
+				# if this is not what I'm comparing to
+				if outerKey != compKey:
+					# grab the times of the compare keyframes
+					compTimeKeys = validTransforms[compKey].getKeyframeTimes()
+					notContained = True 
+					# is this already contained in another parameter
+					for sharedParameters in timeSharedParameters:
+						for param in sharedParameters["parameters"]:
+							if compKey == param["parameter"]:
+								notContained = False
+								pass
+							pass
+						pass
+					# check if these time keys are equal
+					if notContained and set(outerTimeKeys) == set(compTimeKeys):
+						# add this to the shared parameters
+						timeSet["parameters"].append({ "parameter" : compKey, 
+				 						   			   "keys" : validTransforms[compKey].getKeyframeComponents(), 
+				 						   			   "dims" : validTransforms[compKey].getDims() })
+			timeSharedParameters.append(timeSet)
+			pass
+		writer.appendAnimation( self.nodeKey, timeSharedParameters )
+		pass
 
 ## \class BaseExporter
 #
@@ -312,7 +485,7 @@ class BaseExporter( object ):
 		validKeys = ["bakeTransform", "angleWeightedNormals", "bakeColor", "selected"]
 		for key in kwargs.keys():
 			if key not in validKeys:
-				raise RuntimeError( "Unknown paramemter: %s" % key )
+				raise RuntimeError( "Unknown parameter: %s" % key )
 		# Grab arguemnts
 		# TODO: Make this a global so we don't have to pass it everywhere
 		options = {}
