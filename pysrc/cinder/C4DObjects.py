@@ -101,31 +101,34 @@ class C4DMaterial( BaseMaterial ):
 		BaseMaterial.__init__(self)
 		#print "should've called base con"
 		self.material = materialSet["material"]
-		self.name = self.material.GetName()
-		#GL_REPEAT: The integer part of the coordinate will be ignored and a repeating pattern is formed.
-		#GL_MIRRORED_REPEAT: The texture will also be repeated, but it will be mirrored when the integer part of the coordinate is odd.
-		#GL_CLAMP_TO_EDGE: The coordinate will simply be clamped between 0 and 1.
-		#GL_CLAMP_TO_BORDER: The coordinates that fall outside the range will be given a specified border color.
-		# TODO: decide what the different values determine
-		if materialSet["repeat_u"] == 1.0:
-			self.wraps.append( GltfWriter.CLAMP_TO_EDGE )
+		if self.material != None:
+			self.name = self.material.GetName()
+			#GL_REPEAT: The integer part of the coordinate will be ignored and a repeating pattern is formed.
+			#GL_MIRRORED_REPEAT: The texture will also be repeated, but it will be mirrored when the integer part of the coordinate is odd.
+			#GL_CLAMP_TO_EDGE: The coordinate will simply be clamped between 0 and 1.
+			#GL_CLAMP_TO_BORDER: The coordinates that fall outside the range will be given a specified border color.
+			# TODO: decide what the different values determine
+			if materialSet["repeat_u"] == 1.0:
+				self.wraps.append( GltfWriter.CLAMP_TO_EDGE )
+			else:
+				self.wraps.append( GltfWriter.REPEAT )
+			if materialSet["repeat_v"] == 1.0:
+				self.wraps.append( GltfWriter.CLAMP_TO_EDGE )
+			else:
+				self.wraps.append( GltfWriter.REPEAT )
+			
+			# TODO: decide what to do with these.	
+			# c4d.MATERIAL_USE_FOG c4d.MATERIAL_USE_SPECULAR c4d.MATERIAL_USE_GLOW
+			
+			for use, texture, color, key in C4DMaterial.MATERIAL_VALS:
+				self.cacheMaterialValues( use, texture, color, key )
+	
+			# TODO: How do we find these values
+			self.colors["ambient"] = [0.2, 0.2, 0.2, 1.0]
+			self.colors["emission"] = [0, 0, 0, 1.0]
+			self.colors["shininess"] = 256.0
 		else:
-			self.wraps.append( GltfWriter.REPEAT )
-		if materialSet["repeat_v"] == 1.0:
-			self.wraps.append( GltfWriter.CLAMP_TO_EDGE )
-		else:
-			self.wraps.append( GltfWriter.REPEAT )
-		
-		# TODO: decide what to do with these.	
-		# c4d.MATERIAL_USE_FOG c4d.MATERIAL_USE_SPECULAR c4d.MATERIAL_USE_GLOW
-		
-		for use, texture, color, key in C4DMaterial.MATERIAL_VALS:
-			self.cacheMaterialValues( use, texture, color, key )
-
-		# TODO: How do we find these values
-		self.colors["ambient"] = [0.2, 0.2, 0.2, 1.0]
-		self.colors["emission"] = [0, 0, 0, 1.0]
-		self.colors["shininess"] = 256.0
+			self.cacheDefaultMat()
 		pass
 
 	def cacheMaterialValues( self, use, texture, color, key ):
@@ -137,6 +140,17 @@ class C4DMaterial( BaseMaterial ):
 					print "only supported shaders are bitmapshader!"
 			elif self.material[color]:
 				self.colors[key] = convertColor(self.material[color]) 
+		pass
+
+	def cacheDefaultMat( self ):
+		self.name = "Default_Mat"
+		self.wraps.append( GltfWriter.CLAMP_TO_EDGE )
+		self.wraps.append( GltfWriter.CLAMP_TO_EDGE )
+		self.colors["color"] = [0.8, 0.8, 0.8, 1.0]
+		self.colors["ambient"] = [0.2, 0.2, 0.2, 1.0]
+		self.colors["emission"] = [0, 0, 0, 1.0]
+		self.colors["shininess"] = 256.0
+		self.colors["specular"] = [ 0, 0, 0, 1 ]
 		pass
 
 ## \class BaseMesh
