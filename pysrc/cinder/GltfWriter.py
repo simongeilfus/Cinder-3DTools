@@ -129,7 +129,7 @@ class GltfWriter( object ):
 		# copy the assets
 		self.copyImages()
 		# write the binfile
-		binFile = open( self.binFilePath, "w" )
+		binFile = open( self.binFilePath, "wb" )
 		binFile.write( self.buffer )
 		print( "Wrote %s" % self.binFilePath )
 		# finalize the asset
@@ -223,8 +223,7 @@ class GltfWriter( object ):
 			fileName = imageInfo
 			src = os.path.join( self.srcPath, fileName )
 			dst = os.path.join( self.outputPath, fileName )
-			print src
-			print dst
+			print "Copying Images from: " + src + " to: " + dst
 			shutil.copyfile( src, dst )
 
 	def appendBufferView( self, bufferName, byteOffset, byteLength, target ):
@@ -280,6 +279,38 @@ class GltfWriter( object ):
 		self.textures[textureKey] = tempTexture
 		return textureKey
 		pass
+
+	def appendAccessor( self, bufferViewName, byteOffset, byteStride, componentType, count, dataType, minBounding, maxBounding ):
+		tempAccessor = {}
+		tempAccessor["bufferView"] = bufferViewName
+		tempAccessor["byteOffset"] = byteOffset
+		tempAccessor["byteStride"] = byteStride
+		tempAccessor["componentType"] = componentType
+		tempAccessor["count"] = count
+		tempAccessor["type"] = dataType
+		# if (minBounding is not None && len(minBounding) > 0):
+		# 	tempAccessor["min"] = minBounding
+		# if (maxBounding is not None && len(maxBounding) > 0):
+		# 	tempAccessor["max"] = maxBounding
+		self.accessorNum += 1
+		name = "accessor_" + str(self.accessorNum)
+		self.accessors[name] = tempAccessor
+		return name
+		pass
+
+	def appendAttrib( self, attribArray, dims, bufferViewName, attribOffset, attribMap, attribKey ):
+		if len(attribArray) == 0:
+			return 0
+		# buffer positions
+		offset = len(self.buffer)
+		self.buffer.extend(struct.pack('<%df' % len(attribArray), *attribArray))
+		attribType = self.getAttribType( dims )
+		# create accessor
+		accessorName = self.appendAccessor( bufferViewName, attribOffset, dims * 4, self.FLOAT, len(attribArray) / dims, attribType, None, None ) 
+		length = len(self.buffer) - offset
+		# store accessorName
+		attribMap[attribKey] = accessorName
+		return length
 
 	def createPrimitive( self, trimesh, materialKey ):
 		# make temp primitive
@@ -385,38 +416,6 @@ class GltfWriter( object ):
 		self.materials[materialKey] = materialInfo
 		pass
 
-	def appendAttrib( self, attribArray, dims, bufferViewName, attribOffset, attribMap, attribKey ):
-		if len(attribArray) == 0:
-			return 0
-		# buffer positions
-		offset = len(self.buffer)
-		self.buffer.extend(struct.pack('%sf' % len(attribArray), *attribArray))
-		attribType = self.getAttribType( dims )
-		# create accessor
-		accessorName = self.appendAccessor( bufferViewName, attribOffset, dims * 4, self.FLOAT, len(attribArray) / dims, attribType, None, None ) 
-		length = len(self.buffer) - offset
-		# store accessorName
-		attribMap[attribKey] = accessorName
-		return length
-
-	def appendAccessor( self, bufferViewName, byteOffset, byteStride, componentType, count, dataType, minBounding, maxBounding ):
-		tempAccessor = {}
-		tempAccessor["bufferView"] = bufferViewName
-		tempAccessor["byteOffset"] = byteOffset
-		tempAccessor["byteStride"] = byteStride
-		tempAccessor["componentType"] = componentType
-		tempAccessor["count"] = count
-		tempAccessor["type"] = dataType
-		# if (minBounding is not None && len(minBounding) > 0):
-		# 	tempAccessor["min"] = minBounding
-		# if (maxBounding is not None && len(maxBounding) > 0):
-		# 	tempAccessor["max"] = maxBounding
-		self.accessorNum += 1
-		name = "accessor_" + str(self.accessorNum)
-		self.accessors[name] = tempAccessor
-		return name
-		pass
-
 	def appendAnimation( self, nodeKey, timeSharedParameters ):
 		for sharedParams in timeSharedParameters:
 			animationKey = "animation_" + str(self.animationNum)
@@ -445,8 +444,8 @@ class GltfWriter( object ):
 				paramArray = array.array('f')
 				# gather the times in the array
 				paramList = [ component for keys in param["keys"] for component in keys ]
-				for _param in paramList:
-					print _param
+				# for _param in paramList:
+				# 	print _param
 				paramArray.extend(paramList)
 				# get the paramName
 				paramName = param["parameter"]

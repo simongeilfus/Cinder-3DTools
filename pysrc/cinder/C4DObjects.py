@@ -271,6 +271,7 @@ class C4DMesh( BaseMesh ):
 		#colorRgb = [0.5, 0.5, 0.5]
 		# Polygon faces attached to current material
 		#polyFaces = materialFaces["faces"]
+		num = 0
 		for polyId in polyFaces:
 			# Polygon
 			poly = polys[polyId]
@@ -289,6 +290,8 @@ class C4DMesh( BaseMesh ):
 			fv1 = 1
 			fv2 = 2
 			for i in range( numTris ):
+				num = num + 1
+				# print num
 				# Vertex indices
 				mv0 = polyVerts[fv0]
 				mv1 = polyVerts[fv1]
@@ -385,8 +388,8 @@ class C4DCamera( BaseCamera ):
 			self.ymag = 1
 			self.cameraType = BaseCamera.ORTHOGRAPHIC
 
-		self.zfar = cameraInfo[c4d.CAMERAOBJECT_FAR_CLIPPING]
-		self.znear = cameraInfo[c4d.CAMERAOBJECT_NEAR_CLIPPING]	
+		self.zfar = cameraInfo[c4d.CAMERAOBJECT_FAR_CLIPPING] * _c4d.UNIT_SCALE
+		self.znear = cameraInfo[c4d.CAMERAOBJECT_NEAR_CLIPPING]	* _c4d.UNIT_SCALE
 		pass
 	## class BaseCamera
 	pass
@@ -452,25 +455,57 @@ class C4DLight( BaseLight ):
 
 class C4DNode( BaseNode ):
 	## c'tor
-	def __init__( self, obj ):
+	def __init__( self, obj = None ):
 		#print( "C4DNode c'tor" )
 		BaseNode.__init__( self )	
-		self.obj = obj
-		self.name = self.obj.GetName()
-		# extract transformation
-		self.extractTranform()
-		# cache attributes
-		self.determineCacheAttributes()
-		# figure out animation details
-		self.determineAnimation()
-		self.cacheHeirarchy()
-		# if len(self.obj.GetCTracks()) > 0:
-		# 	if self.needsAnimationHeirarchy():
-		# 		self.cacheAsAnimationHeirarchy()
-		# 		return
-		# 	else:
-		# 		self.cacheAnimation()
-		# 	pass
+		if obj is not None:
+			self.obj = obj
+			self.name = self.obj.GetName()
+			print( "Determining object %s (type=%d)" % ( self.obj.GetName(), self.obj.GetType() ) )
+			
+			# extract transformation
+			self.extractTranform()
+			# cache attributes
+			print "i've extracted the transform"
+			self.determineCacheAttributes()
+			# figure out animation details
+			self.determineAnimation()
+			self.cacheHeirarchy()
+			# if len(self.obj.GetCTracks()) > 0:
+			# 	if self.needsAnimationHeirarchy():
+			# 		self.cacheAsAnimationHeirarchy()
+			# 		return
+			# 	else:
+			# 		self.cacheAnimation()
+			# 	pass
+			pass
+		pass
+
+	@staticmethod
+	def createParentNodeWithCorrectiveTransform( name, children ):
+		# create our parent
+		node = C4DNode()
+		node.name = name
+		# create our swap matrix (left handed to right handed)
+		matrix = c4d.Matrix()
+		matrix.v1 = c4d.Vector(-1.0, 0.0, 0.0)
+		matrix.v3 = c4d.Vector(0.0, 0.0, -1.0)
+		# cache each transform part, most likely the trans, 
+		# scale and rot won't ever be used, here for completeness
+		node.matrix = convertC4DMatrix( matrix )
+		node.translation = [ 0.0, 0.0, 0.0 ]
+		node.scale = [-1.0, 1.0, -1.0]
+		quat = c4d.Quaternion()
+		node.rotation = [quat.v.x, quat.v.y, quat.v.z, quat.w]
+		# cache stuff
+		node.isNull = True
+		node.cached = True
+		# now append the selected children
+		for itObj in children:
+			node.childNodes.append( C4DNode( itObj ) )
+			pass
+		# return it as a list
+		return [node]
 		pass
 	
 	def cacheHeirarchy( self ):
@@ -490,10 +525,10 @@ class C4DNode( BaseNode ):
 		self.translation = [ trans.x * _c4d.UNIT_SCALE, 
 							 trans.y * _c4d.UNIT_SCALE, 
 							 trans.z * _c4d.UNIT_SCALE  ]
-		print "trans: "
-		for trans in self.translation:
-			print str(trans) + ", "
-		print "\n"
+		# print "trans: "
+		# for trans in self.translation:
+		# 	print str(trans) + ", "
+		# print "\n"
 		scale = self.obj.GetRelScale()
 		self.scale = [ scale.x, scale.y, scale.z ]
 		# NOTE: HPB rotation euler need to convert
@@ -515,18 +550,22 @@ class C4DNode( BaseNode ):
 		tracks = self.obj.GetCTracks() #Get it's first animation track 
 		if len(tracks) == 0: 
 			return # if it doesn't have any tracks. End the script
-		print "animtion for node: " + self.getName()
+		# print "animtion for node: " + self.getName()
 		self.animation = C4DTransformAnimation( self.getKey(), tracks, self.getTranslation(), 
 									   self.getRotation(), self.getScale() )
 		pass
 
 	def determineCacheAttributes( self ):
 		objType = self.obj.GetType()
+		print "about to get active doc"
 		doc = c4d.documents.GetActiveDocument()
+		print "got doc"
 		if _c4d.OBJECT_BASE_MESH == objType:
+			print "object base mesh"
 			self.cacheAsMeshNode( self.obj )
 		else:
 			if objType in meshObjects:
+				print "mesh objects"
 				tmpObj = self.obj.GetClone()
 				tmpList = c4d.utils.SendModelingCommand( command = c4d.MCOMMAND_CURRENTSTATETOOBJECT, list = [tmpObj], 
 														 mode = c4d.MODELINGCOMMANDMODE_ALL, doc = doc )
@@ -591,15 +630,15 @@ class C4DVectorAnimation( BaseVectorAnimation ):
 
 	def makeQuatKeyframes( self ):
 		retKeyFrames = []
-		print "----------------------------------------------"
+		# print "----------------------------------------------"
 		for keyframe in self.keyframes:
 			vec = c4d.Vector(keyframe[1][0], keyframe[1][1], keyframe[1][2])
 			quat = c4d.Quaternion()
 			quat.SetHPB(vec)
-			string = "quat: "
-			for comp in [quat.v.x, quat.v.y, quat.v.z, quat.w]:
-				string += str(comp) + ", "
-			print string + "\n"
+			# string = "quat: "
+			# for comp in [quat.v.x, quat.v.y, quat.v.z, quat.w]:
+			# 	string += str(comp) + ", "
+			# print string + "\n"
 			retKeyFrames.append([quat.v.x, quat.v.y, quat.v.z, quat.w])
 			pass
 		return retKeyFrames
@@ -619,6 +658,7 @@ class C4DTransformAnimation( BaseTransformAnimation ):
 		for track in tracks:
 			name = track.GetName()
 			cached = False
+			print "----------------------------------------------------------------------------"			
 			for paramKey in C4DTransformAnimation.TRANFORM_PARAMS.keys():
 				if name in C4DTransformAnimation.TRANFORM_PARAMS[paramKey].keys():
 					comp = C4DTransformAnimation.TRANFORM_PARAMS[paramKey][name]
@@ -627,7 +667,12 @@ class C4DTransformAnimation( BaseTransformAnimation ):
 					for x in range(cur.GetKeyCount()):
 						key = cur.GetKey(x)
 						timePoint = key.GetTime().Get()
+						lastTime = key.GetTimeLeft().Get()
+						nextTime = key.GetTimeRight().Get()
 						value = key.GetValue()
+						lastValue = key.GetValueLeft()
+						nextValue = key.GetValueRight()
+						print "lastTime: " + str(lastTime) + " lastValue: " + str(lastValue) + " time: " + str(timePoint) + " value: " + str(value) + " nextTime: " + str(nextTime) + " value: " + str(nextValue)
 						# TODO: need to figure out interpolation
 						interpolation = key.GetInterpolation()
 						if paramKey == "translation":

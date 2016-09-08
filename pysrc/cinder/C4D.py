@@ -33,7 +33,6 @@ class C4DExporter( BaseExporter ):
 	pass
 
 	def cacheNodes( self ):
-		print "cacheNodes"
 		doc = c4d.documents.GetActiveDocument()
 
 		selected = doc.GetActiveObjects( c4d.GETACTIVEOBJECTFLAGS_SELECTIONORDER )
@@ -42,11 +41,7 @@ class C4DExporter( BaseExporter ):
 		if 0 == len( selected ):
 			print( "Nothing selected" )
 			return False
-
-		self.nodes = []
-		for itObj in selected:
-			self.nodes.append( C4DNode( itObj ) )
-			pass
+		self.nodes = C4DNode.createParentNodeWithCorrectiveTransform("left_handed_to_right_handed_transform", selected )
 
 		# Create a directory using the scene name
 		self.sceneFileName = doc.GetDocumentName()
