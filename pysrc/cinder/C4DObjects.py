@@ -463,11 +463,10 @@ class C4DNode( BaseNode ):
 			self.name = self.obj.GetName()
 			print( "Determining object %s (type=%d)" % ( self.obj.GetName(), self.obj.GetType() ) )
 			
+			# cache attributes
+			self.determineCacheAttributes()
 			# extract transformation
 			self.extractTranform()
-			# cache attributes
-			print "i've extracted the transform"
-			self.determineCacheAttributes()
 			# figure out animation details
 			self.determineAnimation()
 			self.cacheHeirarchy()
@@ -488,7 +487,7 @@ class C4DNode( BaseNode ):
 		node.name = name
 		# create our swap matrix (left handed to right handed)
 		matrix = c4d.Matrix()
-		matrix.v1 = c4d.Vector(-1.0, 0.0, 0.0)
+		# matrix.v1 = c4d.Vector(-1.0, 0.0, 0.0)
 		matrix.v3 = c4d.Vector(0.0, 0.0, -1.0)
 		# cache each transform part, most likely the trans, 
 		# scale and rot won't ever be used, here for completeness
@@ -521,10 +520,10 @@ class C4DNode( BaseNode ):
 	def extractTranform( self ):
 		# cache the relative matrix
 		self.matrix = convertC4DMatrix( self.obj.GetMl() )
+
+		print self.name, self.matrix
 		trans = self.obj.GetRelPos()
-		self.translation = [ trans.x * _c4d.UNIT_SCALE, 
-							 trans.y * _c4d.UNIT_SCALE, 
-							 trans.z * _c4d.UNIT_SCALE  ]
+		
 		# print "trans: "
 		# for trans in self.translation:
 		# 	print str(trans) + ", "
@@ -533,8 +532,49 @@ class C4DNode( BaseNode ):
 		self.scale = [ scale.x, scale.y, scale.z ]
 		# NOTE: HPB rotation euler need to convert
 		rot = self.obj.GetRelRot()
+		# rot.x = -rot.x
+		# rot.y = -rot.y
+		# print "Original: ", str(rot.x), str(rot.y), str(rot.z)
+		# quatH = c4d.Quaternion()
+		# quatH.SetHPB(c4d.Vector(rot.x, 0, 0))
+		# quatP = c4d.Quaternion()
+		# quatP.SetHPB(c4d.Vector(0, rot.y, 0))
+		# quatB = c4d.Quaternion()
+		# quatB.SetHPB(c4d.Vector(0, 0, rot.z))
+		# mat = ~(quatH.GetMatrix()) * ~(quatP.GetMatrix()) * quatB.GetMatrix()
+		# newRot = c4d.utils.MatrixToHPB(mat)
+		# print "affected: ", str(newRot.x), str(newRot.y), str(newRot.z)
 		quat = c4d.Quaternion()
-		quat.SetHPB(rot)
+		if self.hasCamera:
+			self.translation = [ trans.x * _c4d.UNIT_SCALE, 
+							 	 trans.y * _c4d.UNIT_SCALE, 
+							 	 -trans.z * _c4d.UNIT_SCALE ]
+			mat_x = c4d.utils.MatrixRotX(rot.y)
+			mat_y = c4d.utils.MatrixRotY(rot.x)
+			mat_z = c4d.utils.MatrixRotZ(rot.z)
+			mat = mat_x * mat_y * mat_z
+			rh_mat = mat
+			rh_mat.v1.x = -rh_mat.v1.x
+			rh_mat.v2.x = -rh_mat.v2.x
+			rh_mat.v3.y = -rh_mat.v3.y
+			rh_mat.v3.z = -rh_mat.v3.z
+			newRot = c4d.utils.MatrixToHPB(rh_mat)
+			quat.SetHPB(newRot)
+		else:
+			self.translation = [ trans.x * _c4d.UNIT_SCALE, 
+							 	 trans.y * _c4d.UNIT_SCALE, 
+							    -trans.z * _c4d.UNIT_SCALE ]
+			mat_x = c4d.utils.MatrixRotX(rot.y)
+			mat_y = c4d.utils.MatrixRotY(rot.x)
+			mat_z = c4d.utils.MatrixRotZ(rot.z)
+			mat = mat_x * mat_y * mat_z
+			rh_mat = mat
+			rh_mat.v1.z = -rh_mat.v1.z
+			rh_mat.v2.z = -rh_mat.v2.z
+			rh_mat.v3.x = -rh_mat.v3.x
+			rh_mat.v3.y = -rh_mat.v3.y
+			newRot = c4d.utils.MatrixToHPB(rh_mat)
+			quat.SetHPB(newRot)
 		self.rotation = [quat.v.x, quat.v.y, quat.v.z, quat.w]
 		pass
 
@@ -557,15 +597,11 @@ class C4DNode( BaseNode ):
 
 	def determineCacheAttributes( self ):
 		objType = self.obj.GetType()
-		print "about to get active doc"
 		doc = c4d.documents.GetActiveDocument()
-		print "got doc"
 		if _c4d.OBJECT_BASE_MESH == objType:
-			print "object base mesh"
 			self.cacheAsMeshNode( self.obj )
 		else:
 			if objType in meshObjects:
-				print "mesh objects"
 				tmpObj = self.obj.GetClone()
 				tmpList = c4d.utils.SendModelingCommand( command = c4d.MCOMMAND_CURRENTSTATETOOBJECT, list = [tmpObj], 
 														 mode = c4d.MODELINGCOMMANDMODE_ALL, doc = doc )

@@ -205,8 +205,8 @@ class BaseNode( object ):
 	def gltf( self, writer ):
 		trans = {}
 
-		if self.animation:
-			self.animation.gltf( writer )
+		if self.hasCamera == False:
+			# self.animation.gltf( writer )
 			trans["translation"] = self.getTranslation()
 			trans["rotation"] = self.getRotation()
 			trans["scale"] = self.getScale()
@@ -429,6 +429,7 @@ class BaseExporter( object ):
 	def __init__( self ):
 		#print( "BaseExporter c'tor" )
 		self.outputPath = None
+		self.nodes = []
 		pass
 
 	## getMeshes

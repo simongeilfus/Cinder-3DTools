@@ -41,8 +41,11 @@ class C4DExporter( BaseExporter ):
 		if 0 == len( selected ):
 			print( "Nothing selected" )
 			return False
-		self.nodes = C4DNode.createParentNodeWithCorrectiveTransform("left_handed_to_right_handed_transform", selected )
-
+		# self.nodes = C4DNode.createParentNodeWithCorrectiveTransform("left_handed_to_right_handed_transform", selected )
+		
+		for itObj in selected:
+			self.nodes.append( C4DNode( itObj ) )
+			pass
 		# Create a directory using the scene name
 		self.sceneFileName = doc.GetDocumentName()
 		return True
