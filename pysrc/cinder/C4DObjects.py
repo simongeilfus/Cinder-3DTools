@@ -520,62 +520,50 @@ class C4DNode( BaseNode ):
 	def extractTranform( self ):
 		# cache the relative matrix
 		self.matrix = convertC4DMatrix( self.obj.GetMl() )
-
-		print self.name, self.matrix
 		trans = self.obj.GetRelPos()
-		
-		# print "trans: "
-		# for trans in self.translation:
-		# 	print str(trans) + ", "
-		# print "\n"
 		scale = self.obj.GetRelScale()
 		self.scale = [ scale.x, scale.y, scale.z ]
 		# NOTE: HPB rotation euler need to convert
 		rot = self.obj.GetRelRot()
-		# rot.x = -rot.x
-		# rot.y = -rot.y
-		# print "Original: ", str(rot.x), str(rot.y), str(rot.z)
-		# quatH = c4d.Quaternion()
-		# quatH.SetHPB(c4d.Vector(rot.x, 0, 0))
-		# quatP = c4d.Quaternion()
-		# quatP.SetHPB(c4d.Vector(0, rot.y, 0))
-		# quatB = c4d.Quaternion()
-		# quatB.SetHPB(c4d.Vector(0, 0, rot.z))
-		# mat = ~(quatH.GetMatrix()) * ~(quatP.GetMatrix()) * quatB.GetMatrix()
-		# newRot = c4d.utils.MatrixToHPB(mat)
-		# print "affected: ", str(newRot.x), str(newRot.y), str(newRot.z)
-		quat = c4d.Quaternion()
-		if self.hasCamera:
-			self.translation = [ trans.x * _c4d.UNIT_SCALE, 
-							 	 trans.y * _c4d.UNIT_SCALE, 
-							 	 -trans.z * _c4d.UNIT_SCALE ]
-			mat_x = c4d.utils.MatrixRotX(rot.y)
-			mat_y = c4d.utils.MatrixRotY(rot.x)
-			mat_z = c4d.utils.MatrixRotZ(rot.z)
-			mat = mat_x * mat_y * mat_z
-			rh_mat = mat
-			rh_mat.v1.x = -rh_mat.v1.x
-			rh_mat.v2.x = -rh_mat.v2.x
-			rh_mat.v3.y = -rh_mat.v3.y
-			rh_mat.v3.z = -rh_mat.v3.z
-			newRot = c4d.utils.MatrixToHPB(rh_mat)
-			quat.SetHPB(newRot)
+		if False:
+			# attempt of left to righthandedness
+			quat = c4d.Quaternion()
+			if self.hasCamera:
+				self.translation = [ trans.x * _c4d.UNIT_SCALE, 
+								 	 trans.y * _c4d.UNIT_SCALE, 
+								 	 -trans.z * _c4d.UNIT_SCALE ]
+				mat_x = c4d.utils.MatrixRotX(rot.y)
+				mat_y = c4d.utils.MatrixRotY(rot.x)
+				mat_z = c4d.utils.MatrixRotZ(rot.z)
+				mat = mat_x * mat_y * mat_z
+				rh_mat = mat
+				rh_mat.v1.x = -rh_mat.v1.x
+				rh_mat.v2.x = -rh_mat.v2.x
+				rh_mat.v3.y = -rh_mat.v3.y
+				rh_mat.v3.z = -rh_mat.v3.z
+				newRot = c4d.utils.MatrixToHPB(rh_mat)
+				quat.SetHPB(newRot)
+			else:
+				self.translation = [ trans.x * _c4d.UNIT_SCALE, 
+								 	 trans.y * _c4d.UNIT_SCALE, 
+								    -trans.z * _c4d.UNIT_SCALE ]
+				mat_x = c4d.utils.MatrixRotX(rot.y)
+				mat_y = c4d.utils.MatrixRotY(rot.x)
+				mat_z = c4d.utils.MatrixRotZ(rot.z)
+				mat = mat_x * mat_y * mat_z
+				rh_mat = mat
+				rh_mat.v1.z = -rh_mat.v1.z
+				rh_mat.v2.z = -rh_mat.v2.z
+				rh_mat.v3.x = -rh_mat.v3.x
+				rh_mat.v3.y = -rh_mat.v3.y
+				newRot = c4d.utils.MatrixToHPB(rh_mat)
+				quat.SetHPB(newRot)
+			self.rotation = [quat.v.x, quat.v.y, quat.v.z, quat.w]
 		else:
-			self.translation = [ trans.x * _c4d.UNIT_SCALE, 
-							 	 trans.y * _c4d.UNIT_SCALE, 
-							    -trans.z * _c4d.UNIT_SCALE ]
-			mat_x = c4d.utils.MatrixRotX(rot.y)
-			mat_y = c4d.utils.MatrixRotY(rot.x)
-			mat_z = c4d.utils.MatrixRotZ(rot.z)
-			mat = mat_x * mat_y * mat_z
-			rh_mat = mat
-			rh_mat.v1.z = -rh_mat.v1.z
-			rh_mat.v2.z = -rh_mat.v2.z
-			rh_mat.v3.x = -rh_mat.v3.x
-			rh_mat.v3.y = -rh_mat.v3.y
-			newRot = c4d.utils.MatrixToHPB(rh_mat)
-			quat.SetHPB(newRot)
-		self.rotation = [quat.v.x, quat.v.y, quat.v.z, quat.w]
+			# putting out the transform directly
+			self.translation = [ trans.x, trans.y, trans.z ]
+			quat.SetHPB(rot)
+			self.rotation = [quat.v.x, quat.v.y, quat.v.z, quat.w]
 		pass
 
 	def needsAnimationHeirarchy( self ):
