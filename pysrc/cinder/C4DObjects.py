@@ -40,7 +40,8 @@ class _c4d( object ):
 	OBJECT_LIGHT		= 5102
 	OBJECT_NULL			= 5140
 
-	UNIT_SCALE 			= 0.01
+	# this should be updated by C4DExporter / with c4d.DOCUMENT_DOCUNIT
+	UNIT_SCALE 			= 1.0
 	pass
 
 meshObjects = [
@@ -399,9 +400,9 @@ class C4DCamera( BaseCamera ):
 #
 class C4DLight( BaseLight ):
 	LIGHT_TYPES = [
-		{ c4d.LIGHT_TYPE_OMNI, BaseLight.POINT },
-		{ c4d.LIGHT_TYPE_SPOT, BaseLight.SPOT }, 
-		{ c4d.LIGHT_TYPE_DISTANT, BaseLight.DIRECTIONAL }
+		( c4d.LIGHT_TYPE_OMNI, BaseLight.POINT ),
+		( c4d.LIGHT_TYPE_SPOT, BaseLight.SPOT ), 
+		( c4d.LIGHT_TYPE_DISTANT, BaseLight.DIRECTIONAL )
 	]
 	## c'tor
 	def __init__( self, obj ):
@@ -520,9 +521,11 @@ class C4DNode( BaseNode ):
 	def extractTranform( self ):
 		# cache the relative matrix
 		self.matrix = convertC4DMatrix( self.obj.GetMl() )
+
 		trans = self.obj.GetRelPos()
 		scale = self.obj.GetRelScale()
 		self.scale = [ scale.x, scale.y, scale.z ]
+
 		# NOTE: HPB rotation euler need to convert
 		rot = self.obj.GetRelRot()
 		if False:
@@ -561,10 +564,14 @@ class C4DNode( BaseNode ):
 			self.rotation = [quat.v.x, quat.v.y, quat.v.z, quat.w]
 		else:
 			# putting out the transform directly
-			self.translation = [ trans.x, trans.y, trans.z ]
+			self.translation = [ trans.x * _c4d.UNIT_SCALE, 
+							 	 trans.y * _c4d.UNIT_SCALE, 
+							 	 -trans.z * _c4d.UNIT_SCALE ]
+			quat = c4d.Quaternion()
 			quat.SetHPB(rot)
 			self.rotation = [quat.v.x, quat.v.y, quat.v.z, quat.w]
 		pass
+		print self.translation
 
 	def needsAnimationHeirarchy( self ):
 		tracks = self.obj.GetCTracks() #Get it's first animation track
