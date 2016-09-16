@@ -197,7 +197,7 @@ class BaseNode( object ):
 		self.childNodes = []
 		# needed transform info
 		self.matrix = None 
-		self.translate = None 
+		self.translation = None 
 		self.rotation = None 
 		self.scale = None
 		pass
