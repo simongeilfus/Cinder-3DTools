@@ -59,7 +59,7 @@ class BaseMaterial( object ):
 
 		writer.techniqueNum = writer.techniqueNum + 1
 		techniqueKey = "technique_" + str(writer.techniqueNum)
-		materialKey = "material-" + tempMaterial["name"]
+		materialKey = self.getKey() # "material-" + tempMaterial["name"]
 
 		if colorFile is not "":
 			materialKey = materialKey + colorFile

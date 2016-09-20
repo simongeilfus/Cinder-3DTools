@@ -223,8 +223,9 @@ class GltfWriter( object ):
 			fileName = imageInfo
 			src = os.path.join( self.srcPath, fileName )
 			dst = os.path.join( self.outputPath, fileName )
-			print "Copying Images from: " + src + " to: " + dst
-			shutil.copyfile( src, dst )
+			if src != dst:
+				print "Copying Images from: " + src + " to: " + dst
+				shutil.copyfile( src, dst )
 
 	def appendBufferView( self, bufferName, byteOffset, byteLength, target ):
 		tempBufferView = {}

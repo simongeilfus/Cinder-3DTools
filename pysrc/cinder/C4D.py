@@ -23,28 +23,47 @@ from C4DObjects import C4DMesh
 from C4DObjects import C4DCamera
 from C4DObjects import C4DLight
 from C4DObjects import _c4d
+from c4d import gui
+
+class C4DExporterOptions( object ) :
+	def __init__( self ):
+		self.exportSelectionOnly = False
+		self.defaultTextureWidth = 512
+		self.defaultTextureHeight = 512
+		self.exportTextures = True
+		self.bakeTransforms = False
+		self.angleWeightedTransforms = False
+
+
 
 class C4DExporter( BaseExporter ):
 
-	def __init__( self ):
+	def __init__( self, options = None ):
 		BaseExporter.__init__( self )
-		#print( "C4DExporter c'tor" )
-		pass
-	# class BaseExporter
-	pass
-
+		if options is None:
+			self.options = C4DExporterOptions()
+		else:
+			self.options = options
+		
 	def cacheNodes( self ):
+
+    	# get the active document
 		doc = c4d.documents.GetActiveDocument()
+		#doc = c4d.documents.GetActiveDocument().Polygonize( keepanimation=True )
 
-		selected = doc.GetActiveObjects( c4d.GETACTIVEOBJECTFLAGS_SELECTIONORDER )
-		self.documentPath = doc.GetDocumentPath()
-		#print self.documentPath
-
+		# Not 100% sure about this, but I wonder if this doesn't force generating
+		# virtual caches on non-polygonal objects.
+		# https://developers.maxon.net/docs/Cinema4DPythonSDK/html/modules/c4d.documents/BaseDocument/index.html#caching
+		c4d.DrawViews(c4d.DRAWFLAGS_ONLY_ACTIVE_VIEW|c4d.DRAWFLAGS_NO_THREAD|c4d.DRAWFLAGS_NO_REDUCTION|c4d.DRAWFLAGS_STATICBREAK)
 
 		# get document data
 		docData = doc.GetDocumentData()
-		# unit convertion
+
+		# unit conversion
+		# should probably use c4d.utils.CalculateTranslationScale
+		# https://developers.maxon.net/docs/Cinema4DPythonSDK/html/modules/c4d.utils/index.html#c4d.utils.CalculateTranslationScale
 		unitScale = docData[c4d.DOCUMENT_DOCUNIT].GetUnitScale()
+
 		# start at the project scale
 		scaleFactor = unitScale[0]
 		# and convert using the project unit
@@ -67,23 +86,41 @@ class C4DExporter( BaseExporter ):
 		elif unitScale[1] == c4d.DOCUMENT_UNIT_INCH :
 		    scaleFactor *= 1.0
 		pass
+		# modify the global UNIT_SCALE factor
+		_c4d.UNIT_SCALE = scaleFactor
 
-		print "Testing"
-		_c4d.UNIT_SCALE = C4DProjectRescale
-		print _c4d.UNIT_SCALE
-		print C4DProjectRescale
-		print " \n"
-		
+		# get document path
+		self.documentPath = doc.GetDocumentPath()		
 
-		if 0 == len( selected ):
-			print( "Nothing selected" )
-			return False
-		# self.nodes = C4DNode.createParentNodeWithCorrectiveTransform("left_handed_to_right_handed_transform", selected )
-		
-		for itObj in selected:
-			self.nodes.append( C4DNode( itObj ) )
-			pass
+		# export
+		if self.options.exportSelectionOnly :
+			# get selection
+			selected = doc.GetActiveObjects( c4d.GETACTIVEOBJECTFLAGS_SELECTIONORDER )
+			numObjSelected = len( selected )
+			if 0 == numObjSelected:
+				gui.MessageDialog( "Nothing selected" )
+				return False
+			processed = 0.0
+			# let the user know that we started the process
+			c4d.StatusSetBar( 0 )
+			for itObj in selected:
+				self.nodes.append( C4DNode( itObj ) )
+				processed = processed + 1.0
+				c4d.StatusSetBar( 100.0 * float(processed) / float(numObjSelected) )
+				pass
+		else :
+			# get full doc
+			obj = doc.GetFirstObject()
+			# let the user know that we started the process
+			c4d.StatusSetBar(50)
+			while obj :
+				self.nodes.append( C4DNode( obj ) )
+				obj = obj.GetNext()
+			
 		# Create a directory using the scene name
 		self.sceneFileName = doc.GetDocumentName()
+
+		# clear the status bar
+		c4d.StatusClear()
 		return True
 		pass

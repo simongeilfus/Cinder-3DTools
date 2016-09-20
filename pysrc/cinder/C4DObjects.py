@@ -20,6 +20,9 @@ from TriMesh import TriMesh
 import c4d
 import array
 import math
+from c4d import gui, Vector, bitmaps
+from c4d.modules.render import ChannelData, InitRenderStruct
+from c4d.bitmaps import ShowBitmap
 
 class _c4d( object ):
 	OBJECT_BASE_MESH	= 5100
@@ -91,9 +94,9 @@ class C4DMaterial( BaseMaterial ):
 	## c'tor
 	MATERIAL_VALS = [
 		(c4d.MATERIAL_USE_TRANSPARENCY, None, 							c4d.MATERIAL_TRANSPARENCY_COLOR, "transparency"),
-		(c4d.MATERIAL_USE_COLOR, 		c4d.MATERIAL_COLOR_SHADER, 		c4d.MATERIAL_COLOR_COLOR, "color"),
+		(c4d.MATERIAL_USE_COLOR, 		c4d.MATERIAL_COLOR_SHADER, 		c4d.MATERIAL_COLOR_COLOR, "diffuse"),
 		(c4d.MATERIAL_USE_NORMAL, 		c4d.MATERIAL_NORMAL_SHADER, 	None, "normal" ),
-		(c4d.MATERIAL_USE_DIFFUSION, 	c4d.MATERIAL_DIFFUSION_SHADER, 	None, "diffuse"),
+		#(c4d.MATERIAL_USE_DIFFUSION, 	c4d.MATERIAL_DIFFUSION_SHADER, 	None, "diffuse"),
 		(c4d.MATERIAL_USE_SPECULARCOLOR,c4d.MATERIAL_SPECULAR_SHADER, 	c4d.MATERIAL_SPECULAR_COLOR, "specular")
 	]
 
@@ -132,13 +135,51 @@ class C4DMaterial( BaseMaterial ):
 			self.cacheDefaultMat()
 		pass
 
+	def getShaderBitmap( self, shader ):
+		outputWidth = 512
+		outputHeight = 512
+		irs = InitRenderStruct()
+
+		if shader.InitRender(irs) != c4d.INITRENDERRESULT_OK:
+			print "Problem initializing Shader Render"
+			return None
+
+		bitmap = bitmaps.BaseBitmap()
+		if shader.CheckType( c4d.Xbitmap ):
+			bitmap = shader.GetBitmap()
+		else: 
+			bitmap.Init( outputWidth, outputHeight, 24 )
+			channelData = ChannelData()
+			for x in xrange( outputWidth ):
+				for y in xrange( outputHeight ):
+					channelData.p = Vector( x / float( outputWidth ), y / float( outputHeight ), 0 )
+					sample = shader.Sample( channelData )
+					bitmap.SetPixel( x, y, int( sample.x * 255 ), int( sample.y * 255 ), int( sample.z * 255 ) )
+
+			shader.FreeRender()       
+		
+		#if bitmap is not None:
+		#	ShowBitmap( bitmap )
+		return bitmap
+
 	def cacheMaterialValues( self, use, texture, color, key ):
 		if self.material[use]==True:         
 			if self.material[texture]:
 				if self.material[texture].GetType() == c4d.Xbitmap:
 					self.files[key] = str(self.material[texture][c4d.BITMAPSHADER_FILENAME])
 				else:
-					print "only supported shaders are bitmapshader!"
+					bitmap = self.getShaderBitmap( self.material[texture] )
+
+					doc = c4d.documents.GetActiveDocument()
+					documentPath = doc.GetDocumentPath()	
+					if documentPath is None:
+						pass
+					else :
+						exportPath = documentPath + "\\temp\\" + self.name + ".jpg"
+						bitmap.Save( exportPath, c4d.FILTER_JPG )
+						self.files[key] = exportPath
+					#self.exportPath
+					#print "only supported shaders are bitmapshader!"
 			elif self.material[color]:
 				self.colors[key] = convertColor(self.material[color]) 
 		pass
@@ -179,16 +220,20 @@ class C4DMesh( BaseMesh ):
 		pass
 
 	def getMaterialSets( self ):
+		print "       getMaterialSets"
 		materialSets = []
 		# Get tags
 		tags = self.meshObj.GetTags()
 		# Find the necessary tags
-		textureTags = []
+		textureTags = self.findTextureTags( self.meshObj )
+		print "textureTags len", len( textureTags )
 		selectionTags = {}
 		for tag in tags:
-			if c4d.Ttexture == tag.GetType():
-				textureTags.append( tag ) 
-			elif c4d.Tpolygonselection == tag.GetType():
+			#print "         tag: ", tag.GetName(), tag.GetTypeName()
+			#if c4d.Ttexture == tag.GetType():
+			#	print "       found textureTag", tag.GetName()
+			#	textureTags.append( tag ) 
+			if c4d.Tpolygonselection == tag.GetType():
 				selectionTags[tag.GetName()] = tag
 				print( "Found selection tag: %s" % tag.GetName() )
 				pass
@@ -258,7 +303,33 @@ class C4DMesh( BaseMesh ):
 		return materialSets
 		pass
 
+	def findTextureTags( self, obj ):
+		textureTags = []
+		tags = obj.GetTags()
+		print "checking ", obj.GetName(), " for texture tags"
+		for tag in tags:
+			if c4d.Ttexture == tag.GetType():
+				textureTags.append( tag ) 
+
+		if len( textureTags ) == 0:
+			parent = obj.GetUp()
+			if parent is None :
+				parent = obj.GetCacheParent()
+
+			print "parent", obj.GetUp(), obj.GetCacheParent()
+			if parent is None :
+				print obj.GetName(), " Has No Parent!"
+				return []
+			else :
+				print "checking ", obj.GetName(), " Parent for texture tags"
+				return self.findTextureTags( parent )
+		else:
+			return textureTags
+
+
+
 	def createTriMesh( self, polyObj, polyFaces ):
+
 		# All polygons
 		polys = polyObj.GetAllPolygons()		
 		# Mesh points
@@ -457,20 +528,80 @@ class C4DLight( BaseLight ):
 class C4DNode( BaseNode ):
 	## c'tor
 	def __init__( self, obj = None ):
-		#print( "C4DNode c'tor" )
 		BaseNode.__init__( self )	
 		if obj is not None:
 			self.obj = obj
 			self.name = self.obj.GetName()
-			print( "Determining object %s (type=%d)" % ( self.obj.GetName(), self.obj.GetType() ) )
 			
+			
+			# not every type of c4d object should cache 
+			# its apparent hierarchy
+			shouldCacheHierarchy = True
+			
+			# start by checking if the object needs any special
+			# treatment. generator and modifiers have a virtual 
+			# tree of objects representing the final mesh
+			objInfo = self.obj.GetInfo()
+
+			# if the node is a generator we should try
+			# to get its cache and traverse its virtual hierarchy
+			if objInfo & c4d.OBJECT_GENERATOR:
+				shouldCacheHierarchy = False
+				self.cacheVirtualHierarchy( self.obj )
+				#self.cacheVirtualHierarchy2( self.obj, c4d.documents.GetActiveDocument() )
+			# polygon objects can be cached directly as a Mesh node
+			elif objInfo & c4d.OBJECT_POLYGONOBJECT:
+				self.cacheAsMeshNode( self.obj )
+			# Modifiers can probably be ignored
+			elif objInfo & c4d.OBJECT_MODIFIER:
+				print("OBJECT_MODIFIER")
+			# Modifiers Hierarchy can also probably be ignored
+			elif objInfo & c4d.OBJECT_HIERARCHYMODIFIER:
+				print("OBJECT_HIERARCHYMODIFIER")
+			else:
+				# Other types of objects can be recognized by their c4d type
+				objType = self.obj.GetType()
+
+				# Null Objects
+				if objType == c4d.Onull:
+					self.cacheAsNullNode()
+				# Cameras
+				elif objType == c4d.Ocamera:
+					self.cacheAsCameraNode()
+				# Lights
+				elif objType == c4d.Olight:
+					self.cacheAsLightNode()
+				# TODO: Would be nice to somehow support XRef 
+				# might be tricky but definitely possible
+				elif objType == c4d.Oxref:
+					print "Oxref"
+				# TODO: Important to support instances as well
+				elif objType == c4d.Oinstance:
+					print "Oinstance"
+				# TODO: how are we suppose to deal with unsupported objects?
+				else:
+					print("Other")
+
+			# extract transformation
+			self.extractTranform()
+			# figure out animation details
+			self.determineAnimation()
+			# cache hierarchy if needed
+			if shouldCacheHierarchy :
+				self.cacheHeirarchy()
+
+			#print( "Determining object %s (type=%d)" % ( self.obj.GetName(), self.obj.GetType() ) )
+			
+			"""
 			# cache attributes
+			self.shouldCacheHierarchy = True
 			self.determineCacheAttributes()
 			# extract transformation
 			self.extractTranform()
 			# figure out animation details
 			self.determineAnimation()
-			self.cacheHeirarchy()
+			if self.shouldCacheHierarchy :
+				self.cacheHeirarchy()
 			# if len(self.obj.GetCTracks()) > 0:
 			# 	if self.needsAnimationHeirarchy():
 			# 		self.cacheAsAnimationHeirarchy()
@@ -479,7 +610,42 @@ class C4DNode( BaseNode ):
 			# 		self.cacheAnimation()
 			# 	pass
 			pass
+			"""
 		pass
+
+	def cacheVirtualHierarchy( self, obj ):
+		# check both the deform and regular cache
+		cache = obj.GetDeformCache()
+		if cache is None:
+			cache = obj.GetCache()
+
+		# if the object has no cache check if we recognize
+		# it as cachable-node
+		if cache is None :
+			if not obj.GetBit( c4d.BIT_CONTROLOBJECT ):
+				if obj.GetType() == c4d.Opolygon:
+					self.cacheAsMeshNode( obj )
+				elif obj.GetType() == c4d.Onull:
+					self.childNodes.append( C4DNode( obj ) )
+					self.cacheAsNullNode()
+		# otherwise continue checking (recursively) its virtual hierarchy
+		else :
+			self.cacheVirtualHierarchy( cache )
+
+	def cacheVirtualHierarchy2( self, obj, doc ):
+		# use the "current state to object" approach and cache the generator
+		# as a null node and add its children as child nodes (creates more hierarchy
+		# than needed)
+		tmpObj = self.obj.GetClone()
+		tmpList = c4d.utils.SendModelingCommand( command = c4d.MCOMMAND_CURRENTSTATETOOBJECT, list = [tmpObj], 
+														 mode = c4d.MODELINGCOMMANDMODE_ALL, doc = doc )
+		c4d.utils.SendModelingCommand( command = c4d.MCOMMAND_TRIANGULATE, list = tmpList, doc = doc )
+		for child in tmpList:
+			self.childNodes.append( C4DNode( child ) )
+		self.cacheAsNullNode()
+
+
+
 
 	@staticmethod
 	def createParentNodeWithCorrectiveTransform( name, children ):
@@ -563,15 +729,25 @@ class C4DNode( BaseNode ):
 				quat.SetHPB(newRot)
 			self.rotation = [quat.v.x, quat.v.y, quat.v.z, quat.w]
 		else:
-			# putting out the transform directly
+			# rescale the position and negate the z component
 			self.translation = [ trans.x * _c4d.UNIT_SCALE, 
 							 	 trans.y * _c4d.UNIT_SCALE, 
 							 	 -trans.z * _c4d.UNIT_SCALE ]
+			# extract the HPB angles, invert x and y and negate the z component
+			hpb = self.obj.GetRelRot()
+			xyz = c4d.Vector( hpb.y, hpb.x, -hpb.z )
+			# transform each component into rotation matrices
+			rotX = c4d.utils.RotAxisToMatrix( c4d.Vector( 1, 0, 0 ), xyz.x )
+			rotY = c4d.utils.RotAxisToMatrix( c4d.Vector( 0, 1, 0 ), xyz.y )
+			rotZ = c4d.utils.RotAxisToMatrix( c4d.Vector( 0, 0, 1 ), xyz.z )
+			# apply the transform into reversed YXZ order
+			rh_mat = rotZ * rotX * rotY
+			# transform the resulting matrix to a quaternion
 			quat = c4d.Quaternion()
-			quat.SetHPB(rot)
+			quat.SetHPB( c4d.utils.MatrixToHPB( rh_mat ) )
+
 			self.rotation = [quat.v.x, quat.v.y, quat.v.z, quat.w]
-		pass
-		print self.translation
+		
 
 	def needsAnimationHeirarchy( self ):
 		tracks = self.obj.GetCTracks() #Get it's first animation track
@@ -591,8 +767,69 @@ class C4DNode( BaseNode ):
 		pass
 
 	def determineCacheAttributes( self ):
+		print "______"
 		objType = self.obj.GetType()
 		doc = c4d.documents.GetActiveDocument()
+		#print "Cache"
+		#print self.obj
+		#print self.obj.IsDirty(c4d.DIRTY_DATA)
+		#print self.obj.GetCache()
+		#print self.obj.GetDeformCache()
+
+		if objType == c4d.Opolygon :
+			print "is a polygon object"
+			self.cacheAsMeshNode( self.obj )
+		elif objType == _c4d.OBJECT_CAMERA:
+			self.cacheAsCameraNode()
+		elif objType == _c4d.OBJECT_LIGHT:
+			self.cacheAsLightNode()
+		elif objType == _c4d.OBJECT_NULL:
+			self.cacheAsNullNode()
+		else:
+			print "is something else"
+			cache = self.obj.GetCache()
+
+			if cache is None:
+				print "GetCache is None"
+				cache = self.obj.GetDeformCache()
+			if cache is not None:
+				self.shouldCacheHierarchy = False
+				print "has a cache"
+				if cache.GetType() == c4d.Opolygon:
+					print "polygonal cache"
+					self.cacheAsMeshNode( cache )
+				elif cache.GetType() == c4d.Onull:
+					print "cache name : ", cache.GetName()
+					childBegIt = cache.GetDown()
+					while childBegIt:
+						print "       cache child name : ", childBegIt.GetName()
+						self.childNodes.append( C4DNode( childBegIt ) )
+						childBegIt = childBegIt.GetNext()
+					self.cacheAsNullNode()
+					#self.childNodes.append( C4DNode( cache ) )
+				else:
+					print cache.GetTypeName()
+					print "PROBLEM"
+					self.cacheAsNullNode()
+
+			elif objType in meshObjects:
+				print "Using Modeling Command"
+				tmpObj = self.obj.GetClone()
+				tmpList = c4d.utils.SendModelingCommand( command = c4d.MCOMMAND_CURRENTSTATETOOBJECT, list = [tmpObj], 
+														 mode = c4d.MODELINGCOMMANDMODE_ALL, doc = doc )
+				c4d.utils.SendModelingCommand( command = c4d.MCOMMAND_TRIANGULATE, list = tmpList, doc = doc )
+
+				if len( tmpList ) > 0:
+					self.cacheAsMeshNode( tmpList[0] )
+				else:
+					print("problem converting mesh node: " + getName())
+					pass
+			else:
+				print "has not a cache"
+				self.shouldCacheHierarchy = False
+				self.cacheAsNullNode()
+
+		"""
 		if _c4d.OBJECT_BASE_MESH == objType:
 			self.cacheAsMeshNode( self.obj )
 		else:
@@ -619,17 +856,19 @@ class C4DNode( BaseNode ):
 					obj = None
 				pass
 			pass
+		"""
 		if not self.cached:
-			print( "Unsupported object %s (type=%d)" % ( obj.GetName(), obj.GetType() ) )
+			print( "Unsupported object %s (type=%s)" % ( self.obj.GetName(), self.obj.GetTypeName() ) )
 			pass
 		pass
 
 	# we take an object here because we may have cloned and modeled the obj
 	def cacheAsMeshNode( self, obj ):
 		# this would be where we'd determine how many meshes we'd want
+
+		self.meshes.append( C4DMesh( obj ) )
 		self.hasMesh = True	
 		self.cached = True 
-		self.meshes.append( C4DMesh( obj ) )
 		pass
 
 	def cacheAsCameraNode( self ):
